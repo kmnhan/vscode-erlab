@@ -43,7 +43,7 @@ jobs:
         run: |
           npx vsce package --out ${{ steps.setup.outputs.packageName }}
 
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.setup.outputs.packageName }}
           path: ./${{ steps.setup.outputs.packageName }}
@@ -55,8 +55,8 @@ jobs:
     needs: package
     if: github.event.inputs.publishMS == 'true'
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/download-artifact@v2
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
         with:
           name: ${{ needs.package.outputs.packageName }}
       - name: Publish to VS marketplace
@@ -68,8 +68,8 @@ jobs:
     needs: package
     if: github.event.inputs.publishOVSX == 'true'
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/download-artifact@v2
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
         with:
           name: ${{ needs.package.outputs.packageName }}
       - name: Publish to Open VSX
@@ -81,7 +81,7 @@ jobs:
     needs: package
     if: github.event.inputs.publishGH == 'true'
     steps:
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v7
         with:
           name: ${{ needs.package.outputs.packageName }}
 
