@@ -1,13 +1,12 @@
 {
   "name": "erlab",
+  "displayName": "erlab",
   "version": "0.0.1",
   "publisher": "khan",
-  "engines": {
-    "vscode": "^1.108.0"
-  },
-  "license": "SEE LICENSE IN LICENSE",
-  "displayName": "erlab",
   "description": "Extension for working with xarray DataArrays and the ERLab Python package in Jupyter Notebooks",
+  "author": {
+    "name": "Kimoon Higashihira Han"
+  },
   "categories": [
     "Notebooks"
   ],
@@ -16,13 +15,18 @@
     "erlab",
     "erlabpy"
   ],
-  "extensionDependencies": [
-    "ms-toolsai.jupyter"
-  ],
+  "icon": "images/icon.png",
+  "pricing": "Free",
   "activationEvents": [
     "onLanguage:python"
   ],
+  "engines": {
+    "vscode": "^1.108.0"
+  },
   "main": "./out/extension.js",
+  "extensionDependencies": [
+    "ms-toolsai.jupyter"
+  ],
   "contributes": {
     "commands": [
       {
@@ -76,6 +80,7 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.52.0"
   },
+  "license": "SEE LICENSE IN LICENSE",
   "bugs": {
     "url": "https://github.com/kmnhan/vscode-erlab/issues"
   },
