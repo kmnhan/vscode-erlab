@@ -1,8 +1,8 @@
 name: Release
 on:
-  release:
-    types:
-      - published
+  push:
+    tags:
+      - 'v*.*.*'
   workflow_dispatch:
     inputs:
       publishMS:
@@ -27,14 +27,10 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       packageName: ${{ steps.setup.outputs.packageName }}
-      tag: ${{ steps.setup-tag.outputs.tag }}
-      version: ${{ steps.setup-tag.outputs.version }}
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-node@v2
-        with:
-          node-version: 14
-          registry-url: https://registry.npmjs.org/
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
 
       - name: Install dependencies
         run: npm i
@@ -52,15 +48,6 @@ jobs:
           name: ${{ steps.setup.outputs.packageName }}
           path: ./${{ steps.setup.outputs.packageName }}
           if-no-files-found: error
-
-      - name: Setup tag
-        id: setup-tag
-        run: |
-          $version = (Get-Content ./package.json -Raw | ConvertFrom-Json).version
-          Write-Host "tag: release/$version"
-          Write-Host "::set-output name=tag::release/$version"
-          Write-Host "::set-output name=version::$version"
-        shell: pwsh
 
   publishMS:
     name: Publish to VS marketplace
@@ -103,5 +90,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          tag_name: ${{ needs.package.outputs.tag }}
+          tag_name: ${{ github.ref_name }}
           files: ${{ needs.package.outputs.packageName }}
