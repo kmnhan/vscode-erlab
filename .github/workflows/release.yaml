@@ -81,6 +81,13 @@ jobs:
     needs: package
     if: github.event.inputs.publishGH == 'true'
     steps:
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        name: Create GitHub App token
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.PRIVATE_KEY }}
+
       - uses: actions/download-artifact@v7
         with:
           name: ${{ needs.package.outputs.packageName }}
@@ -89,6 +96,6 @@ jobs:
         id: create-release
         uses: softprops/action-gh-release@v2
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
           tag_name: ${{ github.ref_name }}
           files: ${{ needs.package.outputs.packageName }}
