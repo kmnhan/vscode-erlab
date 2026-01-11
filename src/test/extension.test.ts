@@ -57,7 +57,7 @@ suite('Extension Test Suite', () => {
 		const commands = await vscode.commands.getCommands(true);
 		assert.ok(commands.includes('erlab.watch'), 'Expected erlab.watch command');
 		assert.ok(commands.includes('erlab.unwatch'), 'Expected erlab.unwatch command');
-		assert.ok(commands.includes('erlab.manager'), 'Expected erlab.manager command');
+		assert.ok(commands.includes('erlab.itool'), 'Expected erlab.itool command');
 	});
 
 	test('ERLab IPython extension can load', async function () {
@@ -91,7 +91,7 @@ suite('Extension Test Suite', () => {
 			.map((content) => contentToString(content))
 			.join('\n');
 
-		assert.ok(!/\\b(Watch|Unwatch|Manager)\\b/.test(hoverText), 'Unexpected ERLab hover in .py file');
+		assert.ok(!/\\b(Watch|Unwatch|ImageTool)\\b/.test(hoverText), 'Unexpected ERLab hover in .py file');
 	});
 });
 

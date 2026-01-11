@@ -97,10 +97,13 @@ export function activate(context: vscode.ExtensionContext) {
 		(variableName) => variableName
 	);
 
-	const managerDisposable = registerMagicCommand(
-		'erlab.manager',
+	const itoolDisposable = registerMagicCommand(
+		'erlab.itool',
 		'itool',
-		(variableName) => `-m ${variableName}`
+		(variableName) => {
+			const useManager = vscode.workspace.getConfiguration('erlab').get<boolean>('itool.useManager', true);
+			return useManager ? `-m ${variableName}` : variableName;
+		}
 	);
 
 	const unwatchDisposable = registerMagicCommand(
@@ -137,12 +140,12 @@ export function activate(context: vscode.ExtensionContext) {
 				md.appendMarkdown(
 					`[$(eye) Show](command:erlab.watch?${encodeCommandArgs({ variableName })}) | ` +
 					`[$(eye-closed) Unwatch](command:erlab.unwatch?${encodeCommandArgs({ variableName })}) | ` +
-					`[$(open-preview) Manager](command:erlab.manager?${encodeCommandArgs({ variableName })})\n`
+					`[$(open-preview) ImageTool](command:erlab.itool?${encodeCommandArgs({ variableName })})\n`
 				);
 			} else {
 				md.appendMarkdown(
 					`[$(eye) Watch](command:erlab.watch?${encodeCommandArgs({ variableName })}) | ` +
-					`[$(open-preview) Manager](command:erlab.manager?${encodeCommandArgs({ variableName })})\n`
+					`[$(open-preview) ImageTool](command:erlab.itool?${encodeCommandArgs({ variableName })})\n`
 				);
 			}
 			md.isTrusted = true;
@@ -191,7 +194,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(
 		watchDisposable,
-		managerDisposable,
+		itoolDisposable,
 		unwatchDisposable,
 		hoverDisposable,
 		selectionDisposable,

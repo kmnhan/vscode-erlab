@@ -7,6 +7,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ## [Unreleased]
 
 - Extend compatibility down to VS Code 1.99.0.
+- Rename `erlab.manager` to `erlab.itool`.
+- Add `erlab.itool.useManager` setting to control ImageTool manager usage.
 
 ## [v0.0.2] - 2026-01-10
 

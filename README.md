@@ -11,7 +11,7 @@ actions to:
 
 - Watch/Show the DataArray in the ERLab ImageTool.
 - Unwatch the DataArray.
-- Open the DataArray in the ImageTool Manager.
+- Open the DataArray in the ImageTool.
 
 ## Usage
 
@@ -25,7 +25,12 @@ actions to:
 
 - `erlab.watch` - Watch a DataArray (or show it if already watched).
 - `erlab.unwatch` - Stop watching a DataArray.
-- `erlab.manager` - Open the DataArray in the ImageTool Manager.
+- `erlab.itool` - Open the DataArray in the ImageTool.
+
+## Settings
+
+- `erlab.itool.useManager` (default: true) - Open in the ImageTool manager when it is
+  already running.
 
 ## Requirements
 

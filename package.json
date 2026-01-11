@@ -34,14 +34,24 @@
         "title": "erlab: Watch DataArray"
       },
       {
-        "command": "erlab.manager",
-        "title": "erlab: Show in ImageTool Manager"
+        "command": "erlab.itool",
+        "title": "erlab: Open in ImageTool"
       },
       {
         "command": "erlab.unwatch",
         "title": "erlab: Unwatch DataArray"
       }
     ],
+    "configuration": {
+      "title": "ERLab",
+      "properties": {
+        "erlab.itool.useManager": {
+          "type": "boolean",
+          "default": true,
+          "description": "Uses the ImageTool Manager to open ImageTool windows if it is available."
+        }
+      }
+    },
     "menus": {
       "editor/context": [
         {
@@ -55,7 +65,7 @@
           "group": "navigation"
         },
         {
-          "command": "erlab.manager",
+          "command": "erlab.itool",
           "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray",
           "group": "navigation"
         }
