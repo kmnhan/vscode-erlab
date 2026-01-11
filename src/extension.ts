@@ -192,13 +192,51 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	const notebookCellStatusBarDisposable = vscode.notebooks.registerNotebookCellStatusBarItemProvider(
+		'jupyter-notebook',
+		{
+			provideCellStatusBarItems: async (
+				cell: vscode.NotebookCell,
+				token: vscode.CancellationToken
+			): Promise<vscode.NotebookCellStatusBarItem[]> => {
+				if (cell.document.languageId !== 'python') {
+					return [];
+				}
+
+				const variableName = getLastLineVariable(cell.document);
+				if (!variableName || !isValidPythonIdentifier(variableName)) {
+					return [];
+				}
+
+				const info = await getDataArrayInfo(cell.document, variableName);
+				if (token.isCancellationRequested || !info) {
+					return [];
+				}
+
+				const label = `Open '${variableName}' in ImageTool`;
+				const item = new vscode.NotebookCellStatusBarItem(
+					label,
+					vscode.NotebookCellStatusBarAlignment.Left
+				);
+				item.command = {
+					command: 'erlab.itool',
+					title: 'Open in ImageTool',
+					arguments: [{ variableName }]
+				};
+				item.tooltip = label;
+				return [item];
+			}
+		}
+	);
+
 	context.subscriptions.push(
 		watchDisposable,
 		itoolDisposable,
 		unwatchDisposable,
 		hoverDisposable,
 		selectionDisposable,
-		activeEditorDisposable
+		activeEditorDisposable,
+		notebookCellStatusBarDisposable
 	);
 }
 
@@ -216,6 +254,17 @@ function getVariableAtSelection(editor: vscode.TextEditor): string | undefined {
 		return;
 	}
 	return editor.document.getText(range);
+}
+
+function getLastLineVariable(document: vscode.TextDocument): string | undefined {
+	for (let lineIndex = document.lineCount - 1; lineIndex >= 0; lineIndex -= 1) {
+		const text = document.lineAt(lineIndex).text.trim();
+		if (!text) {
+			continue;
+		}
+		return text;
+	}
+	return;
 }
 
 function encodeCommandArgs(args: Record<string, unknown>): string {

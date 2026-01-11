@@ -1,7 +1,8 @@
 # VS Code Extension for ERLabPy
 
 This extension adds a lightweight hover and context menu that let you inspect DataArray
-shape info and trigger interactive features provided by [ERLabPy](https://github.com/kmnhan/erlabpy) directly from Jupyter notebooks.
+shape info and trigger interactive features provided by
+[ERLabPy](https://github.com/kmnhan/erlabpy) directly from Jupyter notebooks.
 
 ## Features
 
@@ -12,6 +13,8 @@ actions to:
 - Watch/Show the DataArray in the ERLab ImageTool.
 - Unwatch the DataArray.
 - Open the DataArray in the ImageTool.
+- Use a per-cell status bar button to open a DataArray when the last line of a cell is a
+  DataArray variable.
 
 ## Usage
 
@@ -20,6 +23,8 @@ actions to:
 3. You will see the hover with shape info and actions.
 4. Alternatively, right-click the variable name to access the same actions from the
    context menu.
+5. When the last line of a cell is a DataArray variable name, use the status bar button
+   under the cell to open it in ImageTool.
 
 ## Commands
 
