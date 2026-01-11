@@ -29,11 +29,15 @@ actions to:
 
 ## Requirements
 
-- VS Code with the Jupyter extension installed.
+- VS Code (or any compatible editor) with the Jupyter extension (`ms-toolsai.jupyter`)
+  installed.
 - A running Python kernel for the notebook.
-- The `erlab` Python package available in that kernel.
+- The [`erlab` Python package](https://github.com/kmnhan/erlabpy) must be installed in
+  the kernel environment.
 
 ## Notes
 
-- Hover and context actions run code in the active kernel.
-- The extension does not execute if `erlab` is not installed.
+- Hover and context actions run code in the active kernel. You may be prompted to allow
+  code execution on first use.
+- The extension will not work if [`erlab`](https://github.com/kmnhan/erlabpy) is not
+  installed.
