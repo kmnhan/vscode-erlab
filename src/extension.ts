@@ -64,7 +64,8 @@ export function activate(context: vscode.ExtensionContext) {
 	const registerMagicCommand = (
 		commandId: string,
 		magicName: string,
-		buildArgs: (variableName: string) => string
+		buildArgs: (variableName: string) => string,
+		buildMagicCode?: (variableName: string) => string
 	): vscode.Disposable => vscode.commands.registerCommand(commandId, async (args?: MagicCommandArgs) => {
 		try {
 			const editor = vscode.window.activeTextEditor;
@@ -81,7 +82,9 @@ export function activate(context: vscode.ExtensionContext) {
 
 			await vscode.commands.executeCommand('editor.action.hideHover');
 			const notebookUri = getNotebookUriForDocument(editor.document);
-			const code = buildMagicInvocation(magicName, buildArgs(variableName));
+			const code = buildMagicCode
+				? buildMagicCode(variableName)
+				: buildMagicInvocation(magicName, buildArgs(variableName));
 			const output = await executeInKernel(notebookUri, code);
 			showMagicOutput(output);
 			invalidateDataArrayInfoCache(editor.document, variableName);
@@ -100,9 +103,10 @@ export function activate(context: vscode.ExtensionContext) {
 	const itoolDisposable = registerMagicCommand(
 		'erlab.itool',
 		'itool',
+		(variableName) => variableName,
 		(variableName) => {
 			const useManager = vscode.workspace.getConfiguration('erlab').get<boolean>('itool.useManager', true);
-			return useManager ? `-m ${variableName}` : variableName;
+			return buildItoolInvocation(variableName, useManager);
 		}
 	);
 
@@ -317,6 +321,12 @@ function formatDimsWithSizes(dims: string[], sizes: Record<string, number>): str
 }
 
 function buildMagicInvocation(magicName: string, args: string): string {
+	return buildMagicInvocationWithArgsCode(magicName, [
+		`_args = ${JSON.stringify(args)}`,
+	]);
+}
+
+function buildMagicInvocationWithArgsCode(magicName: string, argsLines: string[]): string {
 	return [
 		'import importlib.util',
 		'import IPython',
@@ -325,8 +335,21 @@ function buildMagicInvocation(magicName: string, args: string): string {
 		'    if _ip and "erlab.interactive" not in _ip.extension_manager.loaded:',
 		'        _ip.run_line_magic("load_ext", "erlab.interactive")',
 		'    if _ip:',
-		`        _ip.run_line_magic(${JSON.stringify(magicName)}, ${JSON.stringify(args)})`,
+		...argsLines.map((line) => `        ${line}`),
+		`        _ip.run_line_magic(${JSON.stringify(magicName)}, _args)`,
 	].join('\n');
+}
+
+function buildItoolInvocation(variableName: string, useManager: boolean): string {
+	if (!useManager) {
+		return buildMagicInvocation('itool', variableName);
+	}
+	return buildMagicInvocationWithArgsCode('itool', [
+		'import erlab.interactive.imagetool.manager as _erlab_manager',
+		`_args = ${JSON.stringify(variableName)}`,
+		'if _erlab_manager.is_running():',
+		`    _args = ${JSON.stringify(`-m ${variableName}`)}`,
+	]);
 }
 
 function buildDataArrayInfoCode(variableName: string): string {
