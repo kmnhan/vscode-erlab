@@ -1,5 +1,8 @@
 # VS Code Extension for ERLabPy
 
+[![VS Code Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/khan.erlab?label=marketplace)](https://marketplace.visualstudio.com/items?itemName=khan.erlab)
+[![Open VSX Version](https://img.shields.io/open-vsx/v/khan/erlab)](https://open-vsx.org/extension/khan/erlab)
+
 This extension adds a lightweight hover and context menu that let you inspect DataArray
 shape info and trigger interactive features provided by
 [ERLabPy](https://github.com/kmnhan/erlabpy) directly from Jupyter notebooks.
