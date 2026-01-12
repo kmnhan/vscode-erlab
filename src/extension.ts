@@ -144,12 +144,12 @@ export function activate(context: vscode.ExtensionContext) {
 				md.appendMarkdown(
 					`[$(eye) Show](command:erlab.watch?${encodeCommandArgs({ variableName })}) | ` +
 					`[$(eye-closed) Unwatch](command:erlab.unwatch?${encodeCommandArgs({ variableName })}) | ` +
-					`[$(open-preview) ImageTool](command:erlab.itool?${encodeCommandArgs({ variableName })})\n`
+					`[$(empty-window) ImageTool](command:erlab.itool?${encodeCommandArgs({ variableName })})\n`
 				);
 			} else {
 				md.appendMarkdown(
 					`[$(eye) Watch](command:erlab.watch?${encodeCommandArgs({ variableName })}) | ` +
-					`[$(open-preview) ImageTool](command:erlab.itool?${encodeCommandArgs({ variableName })})\n`
+					`[$(empty-window) ImageTool](command:erlab.itool?${encodeCommandArgs({ variableName })})\n`
 				);
 			}
 			md.isTrusted = true;
@@ -217,11 +217,12 @@ export function activate(context: vscode.ExtensionContext) {
 					return [];
 				}
 
-				const label = `Open '${variableName}' in ImageTool`;
+				const label = `$(empty-window) Open '${variableName}' in ImageTool`;
 				const item = new vscode.NotebookCellStatusBarItem(
 					label,
 					vscode.NotebookCellStatusBarAlignment.Left
 				);
+				item.priority = 1000;
 				item.command = {
 					command: 'erlab.itool',
 					title: 'Open in ImageTool',
