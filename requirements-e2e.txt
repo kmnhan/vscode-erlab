@@ -1,0 +1,6 @@
+# Python dependencies for E2E tests
+# These are installed with uv for faster, cached installs
+# Using unpinned versions to test compatibility with latest releases
+erlab
+pyqt6
+ipykernel

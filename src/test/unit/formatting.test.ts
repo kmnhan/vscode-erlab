@@ -1,0 +1,100 @@
+/**
+ * Unit tests for DataArray formatting utilities.
+ */
+import * as assert from 'assert';
+import { formatDataArrayLabel, formatDimsWithSizes } from '../../features/dataArray/formatting';
+import type { DataArrayInfo } from '../../features/dataArray/types';
+
+suite('DataArray Formatting', () => {
+	suite('formatDimsWithSizes', () => {
+		test('formats single dimension', () => {
+			const result = formatDimsWithSizes(['x'], { x: 100 });
+			assert.strictEqual(result, 'x: 100');
+		});
+
+		test('formats multiple dimensions', () => {
+			const result = formatDimsWithSizes(['x', 'y', 'z'], { x: 100, y: 200, z: 50 });
+			assert.strictEqual(result, 'x: 100, y: 200, z: 50');
+		});
+
+		test('returns empty string for empty dims', () => {
+			const result = formatDimsWithSizes([], {});
+			assert.strictEqual(result, '');
+		});
+
+		test('handles missing size with question mark', () => {
+			const result = formatDimsWithSizes(['x', 'y'], { x: 100 });
+			assert.strictEqual(result, 'x: 100, y: ?');
+		});
+
+		test('preserves dimension order', () => {
+			const result = formatDimsWithSizes(['z', 'y', 'x'], { x: 1, y: 2, z: 3 });
+			assert.strictEqual(result, 'z: 3, y: 2, x: 1');
+		});
+	});
+
+	suite('formatDataArrayLabel', () => {
+		test('formats array with name and dims', () => {
+			const info: DataArrayInfo = {
+				name: 'temperature',
+				dims: ['lat', 'lon'],
+				sizes: { lat: 180, lon: 360 },
+				shape: [180, 360],
+				dtype: 'float64',
+				ndim: 2,
+			};
+			const result = formatDataArrayLabel(info, 'data');
+			assert.strictEqual(result, 'temperature (lat: 180, lon: 360)');
+		});
+
+		test('uses fallback name when name is undefined', () => {
+			const info: DataArrayInfo = {
+				dims: ['x'],
+				sizes: { x: 10 },
+				shape: [10],
+				dtype: 'int32',
+				ndim: 1,
+			};
+			const result = formatDataArrayLabel(info, 'myVariable');
+			assert.strictEqual(result, 'myVariable (x: 10)');
+		});
+
+		test('returns just name for scalar (no dims)', () => {
+			const info: DataArrayInfo = {
+				name: 'scalar_value',
+				dims: [],
+				sizes: {},
+				shape: [],
+				dtype: 'float64',
+				ndim: 0,
+			};
+			const result = formatDataArrayLabel(info, 'fallback');
+			assert.strictEqual(result, 'scalar_value');
+		});
+
+		test('returns fallback name for scalar without name', () => {
+			const info: DataArrayInfo = {
+				dims: [],
+				sizes: {},
+				shape: [],
+				dtype: 'float64',
+				ndim: 0,
+			};
+			const result = formatDataArrayLabel(info, 'my_scalar');
+			assert.strictEqual(result, 'my_scalar');
+		});
+
+		test('handles 4D array', () => {
+			const info: DataArrayInfo = {
+				name: 'data',
+				dims: ['time', 'level', 'lat', 'lon'],
+				sizes: { time: 12, level: 10, lat: 180, lon: 360 },
+				shape: [12, 10, 180, 360],
+				dtype: 'float32',
+				ndim: 4,
+			};
+			const result = formatDataArrayLabel(info, 'fallback');
+			assert.strictEqual(result, 'data (time: 12, level: 10, lat: 180, lon: 360)');
+		});
+	});
+});
