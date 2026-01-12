@@ -32,6 +32,8 @@ actions to:
 
 ## Commands
 
+All commands work on the currently selected variable in a Jupyter notebook cell.
+
 - `erlab.watch` - Watch a DataArray (or show it if already watched).
 - `erlab.unwatch` - Stop watching a DataArray.
 - `erlab.itool` - Open the DataArray in the ImageTool.
@@ -39,7 +41,7 @@ actions to:
 ## Settings
 
 - `erlab.itool.useManager` (default: true) - Open in the ImageTool manager when it is
-  already running.
+  already running. Otherwise, open in a new ImageTool window bound to the current kernel. If set to false, always open in the current kernel regardless of whether the manager is running.
 
 ## Requirements
 
@@ -47,7 +49,7 @@ actions to:
   installed.
 - A running Python kernel for the notebook.
 - The [`erlab` Python package](https://github.com/kmnhan/erlabpy) must be installed in
-  the kernel environment.
+  the kernel environment, along with a Qt backend (PyQt6 or PySide6) for the ImageTool.
 
 ## Notes
 
