@@ -9,13 +9,14 @@ shape info and trigger interactive features provided by
 
 ## Features
 
+![Hover menu showing DataArray shape and actions](images/screenshot-hover.png)
+
 When hovering over a variable name in a Python cell of a Jupyter notebook, if the
 variable is an `xarray.DataArray`, the hover shows its name and dimensions, along with
 actions to:
 
-- Watch/Show the DataArray in the ERLab ImageTool.
-- Unwatch the DataArray.
-- Open the DataArray in the ImageTool.
+- Open the DataArray in an [ImageTool](https://erlabpy.readthedocs.io/en/stable/user-guide/interactive/imagetool.html).
+- Watch/unwatch the DataArray to sync it with the [ImageTool Manager](https://erlabpy.readthedocs.io/en/stable/user-guide/interactive/manager.html).
 - Use a per-cell status bar button to open a DataArray when the last line of a cell is a
   DataArray variable.
 
