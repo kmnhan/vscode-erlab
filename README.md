@@ -3,9 +3,10 @@
 [![VS Code Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/khan.erlab?label=marketplace)](https://marketplace.visualstudio.com/items?itemName=khan.erlab)
 [![Open VSX Version](https://img.shields.io/open-vsx/v/khan/erlab)](https://open-vsx.org/extension/khan/erlab)
 
-This extension adds a lightweight hover and context menu that let you inspect DataArray
-shape info and trigger interactive features provided by
-[ERLabPy](https://github.com/kmnhan/erlabpy) directly from Jupyter notebooks.
+This extension adds a panel which lists all `xarray.DataArray` variables in the active
+Jupyter notebook, plus hover and context actions to inspect DataArray metadata and
+trigger interactive features provided by [ERLabPy](https://github.com/kmnhan/erlabpy)
+directly from Jupyter notebooks.
 
 ## Features
 
@@ -17,22 +18,25 @@ actions to:
 
 - Open the DataArray in an [ImageTool](https://erlabpy.readthedocs.io/en/stable/user-guide/interactive/imagetool.html).
 - Watch/unwatch the DataArray to sync it with the [ImageTool Manager](https://erlabpy.readthedocs.io/en/stable/user-guide/interactive/manager.html).
+- Open the DataArray detail panel with its HTML representation.
+- Pin DataArrays to keep them at the top of the list.
 - Use a per-cell status bar button to open a DataArray when the last line of a cell is a
   DataArray variable.
 
 ## Usage
 
 1. Open a Jupyter notebook with a Python kernel.
-2. Hover over a variable name in a Python cell that is an `xarray.DataArray`.
-3. You will see the hover with shape info and actions.
-4. Alternatively, right-click the variable name to access the same actions from the
-   context menu.
-5. When the last line of a cell is a DataArray variable name, use the status bar button
+2. Open the ERLab panel and use the DataArrays view to browse variables.
+3. Click a DataArray to open its detail panel and HTML representation.
+4. Hover over a variable name in a Python cell to use quick actions.
+5. Right-click a variable name to access actions from the context menu.
+6. When the last line of a cell is a DataArray variable name, use the status bar button
    under the cell to open it in ImageTool.
 
 ## Commands
 
-All commands work on the currently selected variable in a Jupyter notebook cell.
+All commands work on the currently selected variable in a Jupyter notebook cell unless
+invoked from the DataArrays panel.
 
 - `erlab.watch` - Watch a DataArray (or show it if already watched).
 - `erlab.unwatch` - Stop watching a DataArray.

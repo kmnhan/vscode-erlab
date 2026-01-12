@@ -31,19 +31,81 @@
     "commands": [
       {
         "command": "erlab.watch",
-        "title": "erlab: Watch DataArray"
+        "title": "erlab: Watch DataArray",
+        "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray"
       },
       {
         "command": "erlab.itool",
-        "title": "erlab: Open in ImageTool"
+        "title": "erlab: Open in ImageTool",
+        "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray"
       },
       {
         "command": "erlab.unwatch",
-        "title": "erlab: Unwatch DataArray"
+        "title": "erlab: Unwatch DataArray",
+        "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray && erlab.isDataArrayWatched"
+      },
+      {
+        "command": "erlab.dataArray.refresh",
+        "title": "erlab: Refresh DataArrays",
+        "icon": "$(refresh)",
+        "when": "view == erlabDataArrays"
+      },
+      {
+        "command": "erlab.dataArray.openDetail",
+        "title": "erlab: Open DataArray Details",
+        "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem.*/"
+      },
+      {
+        "command": "erlab.dataArray.togglePin",
+        "title": "erlab: Toggle DataArray Pin",
+        "icon": "$(pin)",
+        "when": "view == erlabDataArrays && viewItem =~ /dataArrayItemPinned.*/"
+      },
+      {
+        "command": "erlab.dataArray.pin",
+        "title": "erlab: Pin DataArray",
+        "icon": "$(pin)",
+        "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem(Watched)?$/"
+      },
+      {
+        "command": "erlab.dataArray.unpin",
+        "title": "erlab: Unpin DataArray",
+        "icon": "$(pinned)",
+        "when": "view == erlabDataArrays && viewItem =~ /dataArrayItemPinned.*/"
+      },
+      {
+        "command": "erlab.dataArray.toggleWatch",
+        "title": "erlab: Toggle DataArray Watch",
+        "icon": "$(eye)",
+        "when": "view == erlabDataArrays && viewItem =~ /dataArrayItemWatched.*/"
+      },
+      {
+        "command": "erlab.dataArray.watch",
+        "title": "erlab: Watch DataArray",
+        "icon": "$(eye)",
+        "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem(Pinned)?$/"
+      },
+      {
+        "command": "erlab.dataArray.unwatch",
+        "title": "erlab: Unwatch DataArray",
+        "icon": "$(eye-closed)",
+        "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem.*Watched.*/"
+      },
+      {
+        "command": "erlab.dataArray.openInImageTool",
+        "title": "erlab: Open DataArray in ImageTool",
+        "icon": "$(empty-window)",
+        "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem.*/"
+      },
+      {
+        "command": "erlab.dataArray.goToDefinition",
+        "title": "erlab: Go to DataArray Definition",
+        "icon": "$(go-to-file)",
+        "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem.*/"
       }
     ],
     "configuration": {
-      "title": "ERLab",
+      "title": "erlab",
       "properties": {
         "erlab.itool.useManager": {
           "type": "boolean",
@@ -53,6 +115,44 @@
       }
     },
     "menus": {
+      "commandPalette": [
+        {
+          "command": "erlab.dataArray.openDetail",
+          "when": "false"
+        },
+        {
+          "command": "erlab.dataArray.togglePin",
+          "when": "false"
+        },
+        {
+          "command": "erlab.dataArray.pin",
+          "when": "false"
+        },
+        {
+          "command": "erlab.dataArray.unpin",
+          "when": "false"
+        },
+        {
+          "command": "erlab.dataArray.toggleWatch",
+          "when": "false"
+        },
+        {
+          "command": "erlab.dataArray.watch",
+          "when": "false"
+        },
+        {
+          "command": "erlab.dataArray.unwatch",
+          "when": "false"
+        },
+        {
+          "command": "erlab.dataArray.openInImageTool",
+          "when": "false"
+        },
+        {
+          "command": "erlab.dataArray.goToDefinition",
+          "when": "false"
+        }
+      ],
       "editor/context": [
         {
           "command": "erlab.watch",
@@ -68,6 +168,84 @@
           "command": "erlab.itool",
           "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray",
           "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "erlab.dataArray.refresh",
+          "when": "view == erlabDataArrays",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "erlab.dataArray.openDetail",
+          "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem.*/",
+          "group": "navigation"
+        },
+        {
+          "command": "erlab.dataArray.openInImageTool",
+          "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem.*/",
+          "group": "inline"
+        },
+        {
+          "command": "erlab.dataArray.goToDefinition",
+          "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem.*/",
+          "group": "inline"
+        },
+        {
+          "command": "erlab.dataArray.pin",
+          "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem(Watched)?$/",
+          "group": "inline"
+        },
+        {
+          "command": "erlab.dataArray.unpin",
+          "when": "view == erlabDataArrays && viewItem =~ /dataArrayItemPinned.*/",
+          "group": "inline"
+        },
+        {
+          "command": "erlab.dataArray.watch",
+          "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem(Pinned)?$/",
+          "group": "inline"
+        },
+        {
+          "command": "erlab.dataArray.unwatch",
+          "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem.*Watched.*/",
+          "group": "inline"
+        },
+        {
+          "command": "erlab.dataArray.togglePin",
+          "when": "view == erlabDataArrays && viewItem =~ /dataArrayItemPinned.*/",
+          "group": "navigation"
+        },
+        {
+          "command": "erlab.dataArray.toggleWatch",
+          "when": "view == erlabDataArrays && viewItem =~ /dataArrayItemWatched.*/",
+          "group": "navigation"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "erlab",
+          "title": "erlab",
+          "icon": "images/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "erlab": [
+        {
+          "id": "erlabDataArrays",
+          "name": "DataArrays",
+          "icon": "$(layers)"
+        },
+        {
+          "id": "erlabDataArrayDetail",
+          "name": "DataArray Detail",
+          "type": "webview",
+          "icon": "$(info)"
         }
       ]
     }

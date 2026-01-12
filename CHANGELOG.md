@@ -4,6 +4,11 @@ All notable changes to the extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [Unreleased]
+
+- Add DataArrays and DataArray Detail panels for browsing and inspecting DataArrays.
+- Enrich hover actions to open details, pin, watch, and open ImageTool.
+
 ## [v0.1.0] - 2026-01-12
 
 - Extend compatibility down to VS Code 1.99.0.
