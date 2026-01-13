@@ -279,7 +279,9 @@
     "test:unit": "npm run compile && mocha --ui tdd out/test/unit/**/*.test.js",
     "test:e2e": "ERLAB_E2E=1 npm run test",
     "test:e2e:setup": "uv venv .venv-e2e --python 3.13 && uv pip install -r requirements-e2e.txt -p .venv-e2e",
-    "test:e2e:cached": "ERLAB_E2E=1 ERLAB_E2E_VENV=.venv-e2e npm run test"
+    "test:e2e:cached": "ERLAB_E2E=1 ERLAB_E2E_VENV=.venv-e2e npm run test",
+    "version": "node scripts/update-changelog.js && git add CHANGELOG.md",
+    "postversion": "vsce package"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
