@@ -1,12 +1,12 @@
 /**
  * DataArray formatting utilities for labels and descriptions.
  */
-import type { DataArrayInfo } from './types';
+import type { DataArrayEntry } from './types';
 
 /**
  * Format a DataArray label with dims and sizes.
  */
-export function formatDataArrayLabel(info: DataArrayInfo, fallbackName: string): string {
+export function formatDataArrayLabel(info: DataArrayEntry, fallbackName: string): string {
 	const name = info.name ?? fallbackName;
 	const dims = formatDimsWithSizes(info.dims, info.sizes);
 	if (!dims) {

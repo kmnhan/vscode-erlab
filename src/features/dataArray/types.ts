@@ -2,22 +2,20 @@
  * DataArray types and constants.
  */
 
-export type DataArrayInfo = {
+/**
+ * Represents a DataArray entry with all metadata.
+ * Used for both individual queries and list results.
+ */
+export type DataArrayEntry = {
+	variableName: string;
 	name?: string;
 	dims: string[];
 	sizes: Record<string, number>;
 	shape: number[];
 	dtype: string;
 	ndim: number;
-	watched?: boolean;
+	watched: boolean;
 };
 
-export type DataArrayInfoCacheEntry = { value?: DataArrayInfo; timestamp: number };
-
-export type DataArrayListEntry = DataArrayInfo & {
-	variableName: string;
-};
-
-export const DATA_ARRAY_INFO_TTL_MS = 3000;
 export const DATA_ARRAY_CONTEXT = 'erlab.isDataArray';
 export const DATA_ARRAY_WATCHED_CONTEXT = 'erlab.isDataArrayWatched';

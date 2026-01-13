@@ -5,7 +5,7 @@ import * as vscode from 'vscode';
 import { isNotebookCellDocument, getNotebookUriForDocument } from '../../notebook';
 import { isValidPythonIdentifier } from '../../python/identifiers';
 import { encodeCommandArgs } from '../../commands';
-import { getDataArrayInfo } from '../dataArray/service';
+import { getCachedDataArrayEntry } from '../dataArray/service';
 import { formatDataArrayLabel } from '../dataArray/formatting';
 import type { PinnedDataArrayStore } from '../dataArray/views/pinnedStore';
 
@@ -16,7 +16,7 @@ export function registerDataArrayHoverProvider(
 	pinnedStore: PinnedDataArrayStore
 ): vscode.Disposable {
 	return vscode.languages.registerHoverProvider({ language: 'python' }, {
-		provideHover: async (document: vscode.TextDocument, position: vscode.Position): Promise<vscode.Hover | undefined> => {
+		provideHover: (document: vscode.TextDocument, position: vscode.Position): vscode.Hover | undefined => {
 			if (!isNotebookCellDocument(document)) {
 				return;
 			}
@@ -30,7 +30,13 @@ export function registerDataArrayHoverProvider(
 			if (!isValidPythonIdentifier(variableName)) {
 				return;
 			}
-			const info = await getDataArrayInfo(document, variableName);
+
+			// Use synchronous cache lookup - no kernel query on hover
+			const notebookUri = getNotebookUriForDocument(document);
+			if (!notebookUri) {
+				return;
+			}
+			const info = getCachedDataArrayEntry(notebookUri, variableName);
 			if (!info) {
 				return;
 			}
@@ -39,10 +45,7 @@ export function registerDataArrayHoverProvider(
 			md.supportThemeIcons = true;
 			const label = formatDataArrayLabel(info, variableName);
 			md.appendMarkdown(`${label}\n\n`);
-			const notebookUri = getNotebookUriForDocument(document);
-			const isPinned = notebookUri
-				? pinnedStore.isPinned(notebookUri, variableName)
-				: false;
+			const isPinned = pinnedStore.isPinned(notebookUri, variableName);
 			const hoverArgs = encodeCommandArgs({
 				variableName,
 				ndim: info.ndim,

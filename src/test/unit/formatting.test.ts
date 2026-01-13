@@ -3,7 +3,7 @@
  */
 import * as assert from 'assert';
 import { formatDataArrayLabel, formatDimsWithSizes } from '../../features/dataArray/formatting';
-import type { DataArrayInfo } from '../../features/dataArray/types';
+import type { DataArrayEntry } from '../../features/dataArray/types';
 
 suite('DataArray Formatting', () => {
 	suite('formatDimsWithSizes', () => {
@@ -35,63 +35,73 @@ suite('DataArray Formatting', () => {
 
 	suite('formatDataArrayLabel', () => {
 		test('formats array with name and dims', () => {
-			const info: DataArrayInfo = {
+			const info: DataArrayEntry = {
+				variableName: 'data',
 				name: 'temperature',
 				dims: ['lat', 'lon'],
 				sizes: { lat: 180, lon: 360 },
 				shape: [180, 360],
 				dtype: 'float64',
 				ndim: 2,
+				watched: false,
 			};
 			const result = formatDataArrayLabel(info, 'data');
 			assert.strictEqual(result, 'temperature (lat: 180, lon: 360)');
 		});
 
 		test('uses fallback name when name is undefined', () => {
-			const info: DataArrayInfo = {
+			const info: DataArrayEntry = {
+				variableName: 'myVariable',
 				dims: ['x'],
 				sizes: { x: 10 },
 				shape: [10],
 				dtype: 'int32',
 				ndim: 1,
+				watched: false,
 			};
 			const result = formatDataArrayLabel(info, 'myVariable');
 			assert.strictEqual(result, 'myVariable (x: 10)');
 		});
 
 		test('returns just name for scalar (no dims)', () => {
-			const info: DataArrayInfo = {
+			const info: DataArrayEntry = {
+				variableName: 'scalar_value',
 				name: 'scalar_value',
 				dims: [],
 				sizes: {},
 				shape: [],
 				dtype: 'float64',
 				ndim: 0,
+				watched: false,
 			};
 			const result = formatDataArrayLabel(info, 'fallback');
 			assert.strictEqual(result, 'scalar_value');
 		});
 
 		test('returns fallback name for scalar without name', () => {
-			const info: DataArrayInfo = {
+			const info: DataArrayEntry = {
+				variableName: 'my_scalar',
 				dims: [],
 				sizes: {},
 				shape: [],
 				dtype: 'float64',
 				ndim: 0,
+				watched: false,
 			};
 			const result = formatDataArrayLabel(info, 'my_scalar');
 			assert.strictEqual(result, 'my_scalar');
 		});
 
 		test('handles 4D array', () => {
-			const info: DataArrayInfo = {
+			const info: DataArrayEntry = {
+				variableName: 'data',
 				name: 'data',
 				dims: ['time', 'level', 'lat', 'lon'],
 				sizes: { time: 12, level: 10, lat: 180, lon: 360 },
 				shape: [12, 10, 180, 360],
 				dtype: 'float32',
 				ndim: 4,
+				watched: false,
 			};
 			const result = formatDataArrayLabel(info, 'fallback');
 			assert.strictEqual(result, 'data (time: 12, level: 10, lat: 180, lon: 360)');
