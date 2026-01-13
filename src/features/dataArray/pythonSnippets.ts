@@ -5,94 +5,89 @@
 const ERLAB_TMP_PREFIX = '__erlab_tmp__';
 
 /**
- * Build Python code to get DataArray info for a variable.
+ * Indent a multiline string by a specified number of spaces.
  */
-export function buildDataArrayInfoCode(variableName: string): string {
-	return [
-		'import IPython',
-		'import json',
-		'try:',
-		'    import xarray as xr',
-		`    ${ERLAB_TMP_PREFIX}ip = IPython.get_ipython()`,
-		`    ${ERLAB_TMP_PREFIX}value = ${variableName}`,
-		`    ${ERLAB_TMP_PREFIX}varname = ${JSON.stringify(variableName)}`,
-		`    if isinstance(${ERLAB_TMP_PREFIX}value, xr.DataArray):`,
-		`        ${ERLAB_TMP_PREFIX}watched = False`,
-		'        try:',
-		`            ${ERLAB_TMP_PREFIX}magic = ${ERLAB_TMP_PREFIX}ip.find_line_magic("watch") if ${ERLAB_TMP_PREFIX}ip else None`,
-		`            ${ERLAB_TMP_PREFIX}owner = getattr(${ERLAB_TMP_PREFIX}magic, "__self__", None)`,
-		`            ${ERLAB_TMP_PREFIX}watcher = getattr(${ERLAB_TMP_PREFIX}owner, "_watcher", None)`,
-		`            ${ERLAB_TMP_PREFIX}watched = ${ERLAB_TMP_PREFIX}watcher is not None and ${ERLAB_TMP_PREFIX}watcher.watched_vars is not None and ${ERLAB_TMP_PREFIX}varname in ${ERLAB_TMP_PREFIX}watcher.watched_vars`,
-		'        except Exception:',
-		`            ${ERLAB_TMP_PREFIX}watched = False`,
-		`        print(json.dumps({"name": ${ERLAB_TMP_PREFIX}value.name, "dims": list(${ERLAB_TMP_PREFIX}value.dims), "sizes": dict(${ERLAB_TMP_PREFIX}value.sizes), "shape": list(${ERLAB_TMP_PREFIX}value.shape), "dtype": str(${ERLAB_TMP_PREFIX}value.dtype), "ndim": int(${ERLAB_TMP_PREFIX}value.ndim), "watched": ${ERLAB_TMP_PREFIX}watched}))`,
-		'    else:',
-		'        print(json.dumps(None))',
-		`    try:`,
-		`        del ${ERLAB_TMP_PREFIX}ip`,
-		`        del ${ERLAB_TMP_PREFIX}value`,
-		`        del ${ERLAB_TMP_PREFIX}varname`,
-		`        del ${ERLAB_TMP_PREFIX}magic`,
-		`        del ${ERLAB_TMP_PREFIX}owner`,
-		`        del ${ERLAB_TMP_PREFIX}watcher`,
-		`        del ${ERLAB_TMP_PREFIX}watched`,
-		`    except Exception:`,
-		`        pass`,
-		`except Exception as ${ERLAB_TMP_PREFIX}exc:`,
-		`    print(json.dumps({"error": str(${ERLAB_TMP_PREFIX}exc)}))`,
-	].join('\n');
+function indent(code: string, spaces: number): string {
+	const prefix = ' '.repeat(spaces);
+	return code.split('\n').map(line => prefix + line).join('\n');
 }
 
 /**
- * Build Python code to list all DataArrays in the kernel namespace.
+ * Common Python code for extracting DataArray info.
+ * This helper is called within the generated code for each variable.
  */
-export function buildDataArrayListCode(): string {
-	return [
-		'import IPython',
-		'import json',
-		'try:',
-		'    import xarray as xr',
-		`    ${ERLAB_TMP_PREFIX}ip = IPython.get_ipython()`,
-		`    ${ERLAB_TMP_PREFIX}user_ns = getattr(${ERLAB_TMP_PREFIX}ip, "user_ns", {}) if ${ERLAB_TMP_PREFIX}ip else {}`,
-		`    ${ERLAB_TMP_PREFIX}watcher = None`,
-		'    try:',
-		`        ${ERLAB_TMP_PREFIX}magic = ${ERLAB_TMP_PREFIX}ip.find_line_magic("watch") if ${ERLAB_TMP_PREFIX}ip else None`,
-		`        ${ERLAB_TMP_PREFIX}owner = getattr(${ERLAB_TMP_PREFIX}magic, "__self__", None)`,
-		`        ${ERLAB_TMP_PREFIX}watcher = getattr(${ERLAB_TMP_PREFIX}owner, "_watcher", None)`,
-		'    except Exception:',
-		`        ${ERLAB_TMP_PREFIX}watcher = None`,
-		`    ${ERLAB_TMP_PREFIX}watched_vars = set(getattr(${ERLAB_TMP_PREFIX}watcher, "watched_vars", []) or []) if ${ERLAB_TMP_PREFIX}watcher else set()`,
-		`    ${ERLAB_TMP_PREFIX}result = []`,
-		`    for ${ERLAB_TMP_PREFIX}varname in tuple(${ERLAB_TMP_PREFIX}user_ns.keys()):`,
-		`        ${ERLAB_TMP_PREFIX}da = ${ERLAB_TMP_PREFIX}user_ns.get(${ERLAB_TMP_PREFIX}varname, None)`,
-		`        if not isinstance(${ERLAB_TMP_PREFIX}da, xr.DataArray) or ${ERLAB_TMP_PREFIX}varname.startswith("_"):`,
-		'            continue',
-		`        ${ERLAB_TMP_PREFIX}result.append({`,
-		`            "variableName": ${ERLAB_TMP_PREFIX}varname,`,
-		`            "name": ${ERLAB_TMP_PREFIX}da.name,`,
-		`            "dims": list(${ERLAB_TMP_PREFIX}da.dims),`,
-		`            "sizes": dict(${ERLAB_TMP_PREFIX}da.sizes),`,
-		`            "shape": list(${ERLAB_TMP_PREFIX}da.shape),`,
-		`            "dtype": str(${ERLAB_TMP_PREFIX}da.dtype),`,
-		`            "ndim": int(${ERLAB_TMP_PREFIX}da.ndim),`,
-		`            "watched": ${ERLAB_TMP_PREFIX}varname in ${ERLAB_TMP_PREFIX}watched_vars,`,
-		'        })',
-		`    print(json.dumps(${ERLAB_TMP_PREFIX}result))`,
-		`    try:`,
-		`        del ${ERLAB_TMP_PREFIX}ip`,
-		`        del ${ERLAB_TMP_PREFIX}user_ns`,
-		`        del ${ERLAB_TMP_PREFIX}watcher`,
-		`        del ${ERLAB_TMP_PREFIX}magic`,
-		`        del ${ERLAB_TMP_PREFIX}owner`,
-		`        del ${ERLAB_TMP_PREFIX}watched_vars`,
-		`        del ${ERLAB_TMP_PREFIX}result`,
-		`        del ${ERLAB_TMP_PREFIX}varname`,
-		`        del ${ERLAB_TMP_PREFIX}da`,
-		`    except Exception:`,
-		`        pass`,
-		`except Exception as ${ERLAB_TMP_PREFIX}exc:`,
-		`    print(json.dumps({"error": str(${ERLAB_TMP_PREFIX}exc)}))`,
-	].join('\n');
+const EXTRACT_INFO_HELPER = `def ${ERLAB_TMP_PREFIX}extract_info(varname, da, watched_vars):
+    return {
+        "variableName": varname,
+        "name": da.name,
+        "dims": list(da.dims),
+        "sizes": dict(da.sizes),
+        "shape": list(da.shape),
+        "dtype": str(da.dtype),
+        "ndim": int(da.ndim),
+        "watched": varname in watched_vars,
+    }`;
+
+/**
+ * Common Python code for getting the watched variables set.
+ */
+const GET_WATCHED_VARS_CODE = `${ERLAB_TMP_PREFIX}watched_vars = set()
+try:
+    ${ERLAB_TMP_PREFIX}magic = ${ERLAB_TMP_PREFIX}ip.find_line_magic("watch") if ${ERLAB_TMP_PREFIX}ip else None
+    ${ERLAB_TMP_PREFIX}owner = getattr(${ERLAB_TMP_PREFIX}magic, "__self__", None)
+    ${ERLAB_TMP_PREFIX}watcher = getattr(${ERLAB_TMP_PREFIX}owner, "_watcher", None)
+    ${ERLAB_TMP_PREFIX}watched_vars = set(getattr(${ERLAB_TMP_PREFIX}watcher, "watched_vars", []) or []) if ${ERLAB_TMP_PREFIX}watcher else set()
+except Exception:
+    ${ERLAB_TMP_PREFIX}watched_vars = set()`;
+
+/**
+ * Build Python code to query DataArray info.
+ * If variableName is provided, queries a single variable.
+ * If variableName is omitted, queries all DataArrays in the namespace.
+ * Both modes return an array of DataArrayEntry objects with variableName included.
+ */
+export function buildDataArrayQueryCode(variableName?: string): string {
+	if (variableName) {
+		// Single variable mode: returns array with 0 or 1 entry
+		return [
+			'import IPython',
+			'import json',
+			'try:',
+			'    import xarray as xr',
+			`    ${ERLAB_TMP_PREFIX}ip = IPython.get_ipython()`,
+			indent(EXTRACT_INFO_HELPER, 4),
+			indent(GET_WATCHED_VARS_CODE, 4),
+			`    ${ERLAB_TMP_PREFIX}value = ${variableName}`,
+			`    ${ERLAB_TMP_PREFIX}varname = ${JSON.stringify(variableName)}`,
+			`    if isinstance(${ERLAB_TMP_PREFIX}value, xr.DataArray):`,
+			`        print(json.dumps([${ERLAB_TMP_PREFIX}extract_info(${ERLAB_TMP_PREFIX}varname, ${ERLAB_TMP_PREFIX}value, ${ERLAB_TMP_PREFIX}watched_vars)]))`,
+			'    else:',
+			'        print(json.dumps([]))',
+			`except Exception as ${ERLAB_TMP_PREFIX}exc:`,
+			`    print(json.dumps({"error": str(${ERLAB_TMP_PREFIX}exc)}))`,
+		].join('\n');
+	} else {
+		// Namespace scan mode: returns array of all DataArrays
+		return [
+			'import IPython',
+			'import json',
+			'try:',
+			'    import xarray as xr',
+			`    ${ERLAB_TMP_PREFIX}ip = IPython.get_ipython()`,
+			`    ${ERLAB_TMP_PREFIX}user_ns = getattr(${ERLAB_TMP_PREFIX}ip, "user_ns", {}) if ${ERLAB_TMP_PREFIX}ip else {}`,
+			indent(EXTRACT_INFO_HELPER, 4),
+			indent(GET_WATCHED_VARS_CODE, 4),
+			`    ${ERLAB_TMP_PREFIX}result = []`,
+			`    for ${ERLAB_TMP_PREFIX}varname in tuple(${ERLAB_TMP_PREFIX}user_ns.keys()):`,
+			`        ${ERLAB_TMP_PREFIX}da = ${ERLAB_TMP_PREFIX}user_ns.get(${ERLAB_TMP_PREFIX}varname, None)`,
+			`        if not isinstance(${ERLAB_TMP_PREFIX}da, xr.DataArray) or ${ERLAB_TMP_PREFIX}varname.startswith("_"):`,
+			'            continue',
+			`        ${ERLAB_TMP_PREFIX}result.append(${ERLAB_TMP_PREFIX}extract_info(${ERLAB_TMP_PREFIX}varname, ${ERLAB_TMP_PREFIX}da, ${ERLAB_TMP_PREFIX}watched_vars))`,
+			`    print(json.dumps(${ERLAB_TMP_PREFIX}result))`,
+			`except Exception as ${ERLAB_TMP_PREFIX}exc:`,
+			`    print(json.dumps({"error": str(${ERLAB_TMP_PREFIX}exc)}))`,
+		].join('\n');
+	}
 }
 
 /**

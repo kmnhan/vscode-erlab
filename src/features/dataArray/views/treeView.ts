@@ -3,9 +3,9 @@
  */
 import * as vscode from 'vscode';
 import type { PinnedDataArrayStore } from './pinnedStore';
-import type { DataArrayListEntry } from '../types';
+import type { DataArrayEntry } from '../types';
 import { formatDimsWithSizes } from '../formatting';
-import { listDataArrays } from '../service';
+import { refreshDataArrayCache, getCachedDataArrayEntries } from '../service';
 import { getActiveNotebookUri } from '../../../notebook';
 
 export class DataArrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
@@ -91,11 +91,16 @@ export class DataArrayPanelProvider implements vscode.TreeDataProvider<vscode.Tr
 			this.lastItems = [new DataArrayMessageItem('Open a notebook to see DataArrays.')];
 			return this.lastItems;
 		}
-		const { entries, error } = await listDataArrays(notebookUri);
-		if (error) {
-			this.itemsByName.clear();
-			this.lastItems = [new DataArrayMessageItem(error)];
-			return this.lastItems;
+		// Try to get cached entries first, refresh cache if empty
+		let entries = getCachedDataArrayEntries(notebookUri);
+		if (entries.length === 0) {
+			const result = await refreshDataArrayCache(notebookUri);
+			if (result.error) {
+				this.itemsByName.clear();
+				this.lastItems = [new DataArrayMessageItem(result.error)];
+				return this.lastItems;
+			}
+			entries = result.entries;
 		}
 		if (entries.length === 0) {
 			this.itemsByName.clear();
@@ -108,7 +113,7 @@ export class DataArrayPanelProvider implements vscode.TreeDataProvider<vscode.Tr
 		if (prunedPinned.length !== pinned.length) {
 			await this.pinnedStore.setPinned(notebookUri, prunedPinned);
 		}
-		const pinnedEntries = prunedPinned.map((name) => entryMap.get(name)).filter(Boolean) as DataArrayListEntry[];
+		const pinnedEntries = prunedPinned.map((name) => entryMap.get(name)).filter(Boolean) as DataArrayEntry[];
 		const unpinnedEntries = entries
 			.filter((entry) => !prunedPinned.includes(entry.variableName))
 			.sort((a, b) => a.variableName.localeCompare(b.variableName));
@@ -123,11 +128,11 @@ export class DataArrayPanelProvider implements vscode.TreeDataProvider<vscode.Tr
 
 export class DataArrayTreeItem extends vscode.TreeItem {
 	readonly variableName: string;
-	readonly info: DataArrayListEntry;
+	readonly info: DataArrayEntry;
 	readonly notebookUri: vscode.Uri;
 	readonly pinned: boolean;
 
-	constructor(info: DataArrayListEntry, notebookUri: vscode.Uri, pinned: boolean) {
+	constructor(info: DataArrayEntry, notebookUri: vscode.Uri, pinned: boolean) {
 		super(info.variableName, vscode.TreeItemCollapsibleState.None);
 		this.variableName = info.variableName;
 		this.info = info;

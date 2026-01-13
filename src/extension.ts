@@ -24,8 +24,10 @@ import { buildMagicInvocation, buildItoolInvocation } from './commands/magicInvo
 import {
 	DATA_ARRAY_CONTEXT,
 	DATA_ARRAY_WATCHED_CONTEXT,
-	getDataArrayInfo,
-	invalidateDataArrayInfoCache,
+	refreshDataArrayCache,
+	isDataArrayInCache,
+	getCachedDataArrayEntry,
+	invalidateDataArrayCacheEntry,
 	PinnedDataArrayStore,
 	DataArrayPanelProvider,
 	DataArrayDetailViewProvider,
@@ -105,7 +107,9 @@ export function activate(context: vscode.ExtensionContext) {
 				: buildMagicInvocation(magicName, buildArgs(variableName));
 			const output = await executeInKernel(notebookUri, code);
 			showMagicOutput(output);
-			invalidateDataArrayInfoCache(editor.document, variableName);
+			if (notebookUri) {
+				invalidateDataArrayCacheEntry(notebookUri, variableName);
+			}
 			if (onDidExecute) {
 				await onDidExecute(variableName, editor.document);
 			}
@@ -136,6 +140,12 @@ export function activate(context: vscode.ExtensionContext) {
 	const dataArrayVisibilityDisposable = dataArrayTreeView.onDidChangeVisibility(() => {
 		requestDataArrayRefresh();
 	});
+
+	// Populate cache on initial activation if there's an active notebook
+	const activeNotebook = getActiveNotebookUri();
+	if (activeNotebook) {
+		void refreshDataArrayCache(activeNotebook);
+	}
 
 	// ─────────────────────────────────────────────────────────────────────────
 	// Magic commands
@@ -200,10 +210,18 @@ export function activate(context: vscode.ExtensionContext) {
 			await vscode.commands.executeCommand('setContext', DATA_ARRAY_WATCHED_CONTEXT, false);
 			return;
 		}
-		const info = await getDataArrayInfo(event.textEditor.document, selectedVariable);
-		const isDataArray = Boolean(info);
+
+		// Use synchronous cache lookup - no kernel query on keystroke
+		const notebookUri = getNotebookUriForDocument(event.textEditor.document);
+		if (!notebookUri) {
+			await vscode.commands.executeCommand('setContext', DATA_ARRAY_CONTEXT, false);
+			await vscode.commands.executeCommand('setContext', DATA_ARRAY_WATCHED_CONTEXT, false);
+			return;
+		}
+		const entry = getCachedDataArrayEntry(notebookUri, selectedVariable);
+		const isDataArray = Boolean(entry);
 		await vscode.commands.executeCommand('setContext', DATA_ARRAY_CONTEXT, isDataArray);
-		await vscode.commands.executeCommand('setContext', DATA_ARRAY_WATCHED_CONTEXT, Boolean(info?.watched));
+		await vscode.commands.executeCommand('setContext', DATA_ARRAY_WATCHED_CONTEXT, Boolean(entry?.watched));
 	});
 
 	const activeEditorDisposable = vscode.window.onDidChangeActiveTextEditor(async (editor?: vscode.TextEditor) => {
@@ -216,14 +234,18 @@ export function activate(context: vscode.ExtensionContext) {
 		requestDataArrayRefresh();
 	});
 
-	const activeNotebookDisposable = vscode.window.onDidChangeActiveNotebookEditor(() => {
+	const activeNotebookDisposable = vscode.window.onDidChangeActiveNotebookEditor(async (editor) => {
 		requestDataArrayRefresh();
+		// Refresh cache when switching notebooks
+		if (editor) {
+			await refreshDataArrayCache(editor.notebook.uri);
+		}
 	});
 
 	// ─────────────────────────────────────────────────────────────────────────
 	// Notebook execution tracking
 	// ─────────────────────────────────────────────────────────────────────────
-	const notebookExecutionDisposable = vscode.workspace.onDidChangeNotebookDocument((event) => {
+	const notebookExecutionDisposable = vscode.workspace.onDidChangeNotebookDocument(async (event) => {
 		const activeNotebook = getActiveNotebookUri();
 		if (!activeNotebook) {
 			return;
@@ -241,6 +263,8 @@ export function activate(context: vscode.ExtensionContext) {
 		if (hasExecutionSummary) {
 			dataArrayPanelProvider.setExecutionInProgress(false);
 			dataArrayDetailProvider.setExecutionInProgress(false);
+			// Refresh cache when cell execution completes
+			await refreshDataArrayCache(activeNotebook);
 			requestDataArrayRefresh();
 		}
 	});
@@ -251,10 +275,10 @@ export function activate(context: vscode.ExtensionContext) {
 	const notebookCellStatusBarDisposable = vscode.notebooks.registerNotebookCellStatusBarItemProvider(
 		'jupyter-notebook',
 		{
-			provideCellStatusBarItems: async (
+			provideCellStatusBarItems: (
 				cell: vscode.NotebookCell,
 				token: vscode.CancellationToken
-			): Promise<vscode.NotebookCellStatusBarItem[]> => {
+			): vscode.NotebookCellStatusBarItem[] => {
 				if (cell.document.languageId !== 'python') {
 					return [];
 				}
@@ -264,8 +288,13 @@ export function activate(context: vscode.ExtensionContext) {
 					return [];
 				}
 
-				const info = await getDataArrayInfo(cell.document, variableName);
-				if (token.isCancellationRequested || !info) {
+				// Use synchronous cache lookup - no kernel query
+				const notebookUri = getNotebookUriForDocument(cell.document);
+				if (!notebookUri) {
+					return [];
+				}
+				const entry = getCachedDataArrayEntry(notebookUri, variableName);
+				if (token.isCancellationRequested || !entry) {
 					return [];
 				}
 
