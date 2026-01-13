@@ -68,10 +68,10 @@ export class DataArrayDetailViewProvider implements vscode.WebviewViewProvider {
 	}
 
 	async showDetail(notebookUri: vscode.Uri, variableName: string): Promise<void> {
-		logger.info('Fetching HTML for variable {0}', variableName);
+		logger.info(`Fetching HTML for variable ${variableName}`);
 		if (!this.view) {
 			this.pendingDetail = { notebookUri, variableName };
-			logger.debug('Detail view not ready, queuing request for {0}', variableName);
+			logger.debug(`Detail view not ready, queuing request for ${variableName}`);
 			return;
 		}
 		if (!this.view.visible) {

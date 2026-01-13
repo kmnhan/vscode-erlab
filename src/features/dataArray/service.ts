@@ -79,7 +79,7 @@ export async function refreshDataArrayCache(
 	notebookUri: vscode.Uri
 ): Promise<{ entries: DataArrayEntry[]; error?: string }> {
 	const cacheKey = getNotebookCacheKey(notebookUri);
-	logger.info('Refreshing DataArray cache for {0}', notebookUri.fsPath);
+	logger.info(`Refreshing DataArray cache for ${notebookUri.fsPath}`);
 
 	try {
 		const output = await executeInKernelForOutput(notebookUri, buildDataArrayQueryCode());
@@ -88,7 +88,7 @@ export async function refreshDataArrayCache(
 		if (error) {
 			// On error, clear the cache for this notebook
 			dataArrayCache.delete(cacheKey);
-			logger.warn('DataArray cache refresh failed: {0}', error);
+			logger.warn(`DataArray cache refresh failed: ${error}`);
 			return { entries: [], error };
 		}
 
@@ -99,12 +99,12 @@ export async function refreshDataArrayCache(
 		}
 		dataArrayCache.set(cacheKey, notebookCache);
 
-		logger.debug('DataArray cache updated: found {0} DataArrays', entries.length);
+		logger.debug(`DataArray cache updated: found ${entries.length} DataArrays`);
 		return { entries };
 	} catch (err) {
 		dataArrayCache.delete(cacheKey);
 		const message = 'Failed to query the kernel. Ensure the Jupyter kernel is running.';
-		logger.error('DataArray cache refresh error: {0}', err instanceof Error ? err.message : String(err));
+		logger.error(`DataArray cache refresh error: ${err instanceof Error ? err.message : String(err)}`);
 		return { entries: [], error: message };
 	}
 }
