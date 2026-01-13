@@ -3,7 +3,7 @@
  */
 import * as vscode from 'vscode';
 import { executeInKernelForOutput, extractLastJsonLine } from '../../../kernel';
-import { buildDataArrayHtmlCode } from '../pythonSnippets';
+import { buildDataArrayHtmlCode, XarrayDisplayOptions } from '../pythonSnippets';
 
 /**
  * Build a full HTML document for the webview.
@@ -86,7 +86,13 @@ export class DataArrayDetailViewProvider implements vscode.WebviewViewProvider {
 			return;
 		}
 		try {
-			const output = await executeInKernelForOutput(notebookUri, buildDataArrayHtmlCode(variableName));
+			const config = vscode.workspace.getConfiguration('erlab');
+			const displayOptions: XarrayDisplayOptions = {
+				displayExpandAttrs: config.get<boolean>('dataArray.displayExpandAttrs', true),
+				displayExpandCoords: config.get<boolean>('dataArray.displayExpandCoords', true),
+				displayExpandData: config.get<boolean>('dataArray.displayExpandData', false),
+			};
+			const output = await executeInKernelForOutput(notebookUri, buildDataArrayHtmlCode(variableName, displayOptions));
 			const line = extractLastJsonLine(output);
 			if (!line) {
 				this.lastHtml = buildDataArrayHtml(buildDataArrayMessage('No HTML representation returned.'));

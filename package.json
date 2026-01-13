@@ -111,6 +111,21 @@
           "type": "boolean",
           "default": true,
           "description": "Uses the ImageTool Manager to open ImageTool windows if it is available."
+        },
+        "erlab.dataArray.displayExpandAttrs": {
+          "type": "boolean",
+          "default": true,
+          "description": "Expand attributes section in DataArray HTML representation."
+        },
+        "erlab.dataArray.displayExpandCoords": {
+          "type": "boolean",
+          "default": true,
+          "description": "Expand coordinates section in DataArray HTML representation."
+        },
+        "erlab.dataArray.displayExpandData": {
+          "type": "boolean",
+          "default": false,
+          "description": "Expand data section in DataArray HTML representation."
         }
       }
     },
@@ -257,7 +272,7 @@
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
     "test": "vscode-test",
-    "test:unit": "npm run compile && mocha out/test/unit/**/*.test.js",
+    "test:unit": "npm run compile && mocha --ui tdd out/test/unit/**/*.test.js",
     "test:e2e": "ERLAB_E2E=1 npm run test",
     "test:e2e:setup": "uv venv .venv-e2e --python 3.13 && uv pip install -r requirements-e2e.txt -p .venv-e2e",
     "test:e2e:cached": "ERLAB_E2E=1 ERLAB_E2E_VENV=.venv-e2e npm run test"

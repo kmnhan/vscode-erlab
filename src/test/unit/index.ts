@@ -7,3 +7,4 @@ export * from './commandArgs.test';
 export * from './formatting.test';
 export * from './kernelParsing.test';
 export * from './magicInvocation.test';
+export * from './pythonSnippets.test';

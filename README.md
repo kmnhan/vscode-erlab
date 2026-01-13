@@ -45,7 +45,15 @@ invoked from the DataArrays panel.
 ## Settings
 
 - `erlab.itool.useManager` (default: true) - Open in the ImageTool manager when it is
-  already running. Otherwise, open in a new ImageTool window bound to the current kernel. If set to false, always open in the current kernel regardless of whether the manager is running.
+  already running. Otherwise, open in a new ImageTool window bound to the current
+  kernel. If set to false, always open in the current kernel regardless of whether the
+  manager is running.
+- `erlab.dataArray.displayExpandAttrs` (default: true) - Expand attributes section in
+  DataArray HTML representation.
+- `erlab.dataArray.displayExpandCoords` (default: true) - Expand coordinates section in
+  DataArray HTML representation.
+- `erlab.dataArray.displayExpandData` (default: false) - Expand data section in
+  DataArray HTML representation.
 
 ## Requirements
 

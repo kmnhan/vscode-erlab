@@ -96,9 +96,22 @@ export function buildDataArrayListCode(): string {
 }
 
 /**
+ * Options for configuring xarray display behavior.
+ */
+export interface XarrayDisplayOptions {
+	displayExpandAttrs?: boolean;
+	displayExpandCoords?: boolean;
+	displayExpandData?: boolean;
+}
+
+/**
  * Build Python code to get the HTML representation of a DataArray.
  */
-export function buildDataArrayHtmlCode(variableName: string): string {
+export function buildDataArrayHtmlCode(variableName: string, options?: XarrayDisplayOptions): string {
+	const expandAttrs = options?.displayExpandAttrs ?? true;
+	const expandCoords = options?.displayExpandCoords ?? true;
+	const expandData = options?.displayExpandData ?? false;
+
 	return [
 		'import IPython',
 		'import json',
@@ -107,7 +120,7 @@ export function buildDataArrayHtmlCode(variableName: string): string {
 		`    ${ERLAB_TMP_PREFIX}ip = IPython.get_ipython()`,
 		`    ${ERLAB_TMP_PREFIX}value = ${variableName}`,
 		`    if isinstance(${ERLAB_TMP_PREFIX}value, xr.DataArray):`,
-		'        with xr.set_options(display_expand_attrs=True):',
+		`        with xr.set_options(display_expand_attrs=${expandAttrs ? 'True' : 'False'}, display_expand_coords=${expandCoords ? 'True' : 'False'}, display_expand_data=${expandData ? 'True' : 'False'}):`,
 		`            ${ERLAB_TMP_PREFIX}html = ${ERLAB_TMP_PREFIX}value._repr_html_()`,
 		`        print(json.dumps({"html": ${ERLAB_TMP_PREFIX}html}))`,
 		'    else:',
