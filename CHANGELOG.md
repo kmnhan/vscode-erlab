@@ -4,6 +4,8 @@ All notable changes to the extension will be documented in this file.
 
 ## [Unreleased]
 
+## [v0.2.1] - 2026-01-13
+
 - Add settings to configure DataArray HTML representation verbosity:
   `erlab.dataArray.displayExpandAttrs`, `erlab.dataArray.displayExpandCoords`, and
   `erlab.dataArray.displayExpandData`.
