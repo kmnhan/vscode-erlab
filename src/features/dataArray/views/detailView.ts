@@ -4,6 +4,7 @@
 import * as vscode from 'vscode';
 import { executeInKernelForOutput, extractLastJsonLine } from '../../../kernel';
 import { buildDataArrayHtmlCode, XarrayDisplayOptions } from '../pythonSnippets';
+import { logger } from '../../../logger';
 
 /**
  * Build a full HTML document for the webview.
@@ -67,8 +68,10 @@ export class DataArrayDetailViewProvider implements vscode.WebviewViewProvider {
 	}
 
 	async showDetail(notebookUri: vscode.Uri, variableName: string): Promise<void> {
+		logger.info('Fetching HTML for variable {0}', variableName);
 		if (!this.view) {
 			this.pendingDetail = { notebookUri, variableName };
+			logger.debug('Detail view not ready, queuing request for {0}', variableName);
 			return;
 		}
 		if (!this.view.visible) {

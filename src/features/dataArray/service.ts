@@ -6,6 +6,7 @@ import { executeInKernelForOutput, extractLastJsonLine } from '../../kernel';
 import { isValidPythonIdentifier } from '../../python/identifiers';
 import { type DataArrayEntry } from './types';
 import { buildDataArrayQueryCode } from './pythonSnippets';
+import { logger } from '../../logger';
 
 /**
  * Cache structure: notebookUri -> Map<variableName, DataArrayEntry>
@@ -78,6 +79,7 @@ export async function refreshDataArrayCache(
 	notebookUri: vscode.Uri
 ): Promise<{ entries: DataArrayEntry[]; error?: string }> {
 	const cacheKey = getNotebookCacheKey(notebookUri);
+	logger.info('Refreshing DataArray cache for {0}', notebookUri.fsPath);
 
 	try {
 		const output = await executeInKernelForOutput(notebookUri, buildDataArrayQueryCode());
@@ -86,6 +88,7 @@ export async function refreshDataArrayCache(
 		if (error) {
 			// On error, clear the cache for this notebook
 			dataArrayCache.delete(cacheKey);
+			logger.warn('DataArray cache refresh failed: {0}', error);
 			return { entries: [], error };
 		}
 
@@ -96,10 +99,13 @@ export async function refreshDataArrayCache(
 		}
 		dataArrayCache.set(cacheKey, notebookCache);
 
+		logger.debug('DataArray cache updated: found {0} DataArrays', entries.length);
 		return { entries };
-	} catch {
+	} catch (err) {
 		dataArrayCache.delete(cacheKey);
-		return { entries: [], error: 'Failed to query the kernel. Ensure the Jupyter kernel is running.' };
+		const message = 'Failed to query the kernel. Ensure the Jupyter kernel is running.';
+		logger.error('DataArray cache refresh error: {0}', err instanceof Error ? err.message : String(err));
+		return { entries: [], error: message };
 	}
 }
 

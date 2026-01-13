@@ -7,6 +7,8 @@ All notable changes to the extension will be documented in this file.
 - Add settings to configure DataArray HTML representation verbosity:
   `erlab.dataArray.displayExpandAttrs`, `erlab.dataArray.displayExpandCoords`, and
   `erlab.dataArray.displayExpandData`.
+- Increase performance and reliability of DataArray detection in hover provider.
+- Add logging to the extension output channel for easier debugging.
 
 ## [v0.2.0] - 2026-01-12
 

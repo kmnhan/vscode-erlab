@@ -7,6 +7,7 @@
 import * as vscode from 'vscode';
 
 // Infrastructure
+import { initializeLogger, logger } from './logger';
 import { executeInKernel } from './kernel';
 import { isNotebookCellDocument, getNotebookUriForDocument, getActiveNotebookUri, resolveNotebookUri } from './notebook';
 import { findNotebookDefinitionLocation } from './notebook/definitionSearch';
@@ -75,7 +76,8 @@ function showMagicOutput(output: string): void {
 
 // This method is called when your extension is activated
 export function activate(context: vscode.ExtensionContext) {
-	console.log('erlab extension activated');
+	initializeLogger(context);
+	logger.info('ERLab extension activated');
 
 	// ─────────────────────────────────────────────────────────────────────────
 	// Magic command registration helper
@@ -503,6 +505,14 @@ export function activate(context: vscode.ExtensionContext) {
 	);
 
 	// ─────────────────────────────────────────────────────────────────────────
+	// Show output channel command
+	// ─────────────────────────────────────────────────────────────────────────
+	const showOutputDisposable = vscode.commands.registerCommand(
+		'erlab.showOutput',
+		() => logger.show()
+	);
+
+	// ─────────────────────────────────────────────────────────────────────────
 	// Register all disposables
 	// ─────────────────────────────────────────────────────────────────────────
 	context.subscriptions.push(
@@ -525,6 +535,7 @@ export function activate(context: vscode.ExtensionContext) {
 		dataArrayUnwatchDisposable,
 		openInImageToolDisposable,
 		goToDefinitionDisposable,
+		showOutputDisposable,
 		dataArrayTreeView,
 		dataArrayDetailDisposable,
 		dataArrayVisibilityDisposable

@@ -102,6 +102,10 @@
         "title": "erlab: Go to DataArray Definition",
         "icon": "$(go-to-file)",
         "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem.*/"
+      },
+      {
+        "command": "erlab.showOutput",
+        "title": "erlab: Show Output Channel"
       }
     ],
     "configuration": {

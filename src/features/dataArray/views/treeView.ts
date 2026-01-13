@@ -7,6 +7,7 @@ import type { DataArrayEntry } from '../types';
 import { formatDimsWithSizes } from '../formatting';
 import { refreshDataArrayCache, getCachedDataArrayEntries } from '../service';
 import { getActiveNotebookUri } from '../../../notebook';
+import { logger } from '../../../logger';
 
 export class DataArrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
 	private readonly pinnedStore: PinnedDataArrayStore;
@@ -29,12 +30,14 @@ export class DataArrayPanelProvider implements vscode.TreeDataProvider<vscode.Tr
 	}
 
 	requestRefresh(): void {
+		logger.debug('Tree view refresh requested');
 		if (this.executionInProgress) {
 			this.refreshPending = true;
 			if (this.refreshTimer) {
 				clearTimeout(this.refreshTimer);
 				this.refreshTimer = undefined;
 			}
+			logger.trace('Refresh deferred: execution in progress');
 			return;
 		}
 		if (!this.treeView || !this.treeView.visible) {

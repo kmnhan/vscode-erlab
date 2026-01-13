@@ -4,6 +4,7 @@
 import * as vscode from 'vscode';
 import { TextDecoder } from 'util';
 import type { JupyterApi, KernelOutputItem } from './types';
+import { logger } from '../logger';
 
 const textDecoder = new TextDecoder();
 
@@ -98,14 +99,21 @@ export async function executeInKernel(notebookUri: vscode.Uri | undefined, code:
 		return '';
 	}
 
+	logger.debug('Executing code in kernel for {0}', notebookUri?.fsPath ?? 'unknown');
+	logger.trace('Python code to execute:\n{0}', code);
+
 	const tokenSource = new vscode.CancellationTokenSource();
 	const errorMime = vscode.NotebookCellOutputItem.error(new Error('')).mime;
 	const stdoutMime = vscode.NotebookCellOutputItem.stdout('').mime;
 	const textPlainMime = 'text/plain';
 	const chunks: string[] = [];
 	const errors: string[] = [];
+	let iterationCount = 0;
 	try {
+		logger.trace('Starting kernel execution loop...');
 		for await (const output of kernel.executeCode(code, tokenSource.token)) {
+			iterationCount++;
+			logger.trace('Kernel output iteration {0}: received {1} items', iterationCount, output.items.length);
 			for (const item of output.items) {
 				if (item.mime === errorMime) {
 					const decoded = decodeKernelOutputItem(item) ?? '';
@@ -118,14 +126,18 @@ export async function executeInKernel(notebookUri: vscode.Uri | undefined, code:
 				}
 			}
 		}
+		logger.trace('Kernel execution loop completed after {0} iterations', iterationCount);
 	} finally {
 		tokenSource.dispose();
 	}
 
 	if (errors.length > 0) {
-		throw new Error(errors.map((err) => err.trim()).filter(Boolean).join('; '));
+		const errorMessage = errors.map((err) => err.trim()).filter(Boolean).join('; ');
+		logger.error('Kernel execution failed: {0}', errorMessage);
+		throw new Error(errorMessage);
 	}
 
+	logger.debug('Kernel execution completed, received {0} output chunks', chunks.length);
 	return chunks.join('');
 }
 
@@ -150,14 +162,21 @@ export async function executeInKernelForOutput(
 		throw new Error('No active kernel for this notebook.');
 	}
 
+	logger.debug('Executing code for output in kernel for {0}', notebookUri.fsPath);
+	logger.trace('Python code to execute:\\n{0}', code);
+
 	const tokenSource = new vscode.CancellationTokenSource();
 	const errorMime = vscode.NotebookCellOutputItem.error(new Error('')).mime;
 	const stdoutMime = vscode.NotebookCellOutputItem.stdout('').mime;
 	const textPlainMime = 'text/plain';
 	const chunks: string[] = [];
 	const errors: string[] = [];
+	let iterationCount = 0;
 	try {
+		logger.trace('Starting kernel execution loop...');
 		for await (const output of kernel.executeCode(code, tokenSource.token)) {
+			iterationCount++;
+			logger.trace('Kernel output iteration {0}: received {1} items', iterationCount, output.items.length);
 			for (const item of output.items) {
 				if (item.mime === errorMime) {
 					const decoded = decodeKernelOutputItem(item) ?? '';
@@ -175,13 +194,17 @@ export async function executeInKernelForOutput(
 				}
 			}
 		}
+		logger.trace('Kernel execution loop completed after {0} iterations', iterationCount);
 	} finally {
 		tokenSource.dispose();
 	}
 
 	if (errors.length > 0) {
-		throw new Error(errors.map((err) => err.trim()).filter(Boolean).join('; '));
+		const errorMessage = errors.map((err) => err.trim()).filter(Boolean).join('; ');
+		logger.error('Kernel execution for output failed: {0}', errorMessage);
+		throw new Error(errorMessage);
 	}
 
+	logger.debug('Kernel execution for output completed, received {0} chunks', chunks.length);
 	return chunks.join('');
 }
