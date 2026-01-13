@@ -237,11 +237,11 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	const activeNotebookDisposable = vscode.window.onDidChangeActiveNotebookEditor(async (editor) => {
-		requestDataArrayRefresh();
-		// Refresh cache when switching notebooks
+		// Refresh cache when switching notebooks (debounced)
 		if (editor) {
 			await refreshDataArrayCache(editor.notebook.uri);
 		}
+		requestDataArrayRefresh();
 	});
 
 	// ─────────────────────────────────────────────────────────────────────────
@@ -265,8 +265,10 @@ export function activate(context: vscode.ExtensionContext) {
 		if (hasExecutionSummary) {
 			dataArrayPanelProvider.setExecutionInProgress(false);
 			dataArrayDetailProvider.setExecutionInProgress(false);
-			// Refresh cache when cell execution completes
+			// Refresh cache when cell execution completes (debounced + coalesced)
 			await refreshDataArrayCache(activeNotebook);
+			// Note: requestDataArrayRefresh is called after cache refresh completes
+			// to update tree view with new data
 			requestDataArrayRefresh();
 		}
 	});

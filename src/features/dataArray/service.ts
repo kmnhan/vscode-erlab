@@ -15,6 +15,21 @@ import { logger } from '../../logger';
 const dataArrayCache = new Map<string, Map<string, DataArrayEntry>>();
 
 /**
+ * Track in-flight refresh requests to avoid duplicate kernel queries.
+ */
+const pendingRefreshes = new Map<string, Promise<{ entries: DataArrayEntry[]; error?: string }>>();
+
+/**
+ * Debounce timers for refresh requests per notebook.
+ */
+const debounceTimers = new Map<string, NodeJS.Timeout>();
+
+/**
+ * Debounce delay in milliseconds for coalescing rapid refresh requests.
+ */
+const REFRESH_DEBOUNCE_MS = 150;
+
+/**
  * Get the cache key for a notebook URI.
  */
 function getNotebookCacheKey(notebookUri: vscode.Uri): string {
@@ -72,13 +87,12 @@ function parseDataArrayResponse(output: string): { entries: DataArrayEntry[]; er
 }
 
 /**
- * Refresh the DataArray cache for a notebook by querying the kernel.
- * This queries all DataArrays in the namespace and updates the cache.
+ * Internal function that performs the actual cache refresh.
  */
-export async function refreshDataArrayCache(
-	notebookUri: vscode.Uri
+async function doRefreshDataArrayCache(
+	notebookUri: vscode.Uri,
+	cacheKey: string
 ): Promise<{ entries: DataArrayEntry[]; error?: string }> {
-	const cacheKey = getNotebookCacheKey(notebookUri);
 	logger.info(`Refreshing DataArray cache for ${notebookUri.fsPath}`);
 
 	try {
@@ -106,7 +120,51 @@ export async function refreshDataArrayCache(
 		const message = 'Failed to query the kernel. Ensure the Jupyter kernel is running.';
 		logger.error(`DataArray cache refresh error: ${err instanceof Error ? err.message : String(err)}`);
 		return { entries: [], error: message };
+	} finally {
+		// Clean up pending refresh tracking
+		pendingRefreshes.delete(cacheKey);
 	}
+}
+
+/**
+ * Refresh the DataArray cache for a notebook by querying the kernel.
+ * This queries all DataArrays in the namespace and updates the cache.
+ *
+ * Requests are debounced (150ms) and coalesced: if a refresh is already
+ * in-flight for this notebook, the existing promise is returned.
+ */
+export async function refreshDataArrayCache(
+	notebookUri: vscode.Uri
+): Promise<{ entries: DataArrayEntry[]; error?: string }> {
+	const cacheKey = getNotebookCacheKey(notebookUri);
+
+	// If there's already a refresh in progress, return that promise
+	const pending = pendingRefreshes.get(cacheKey);
+	if (pending) {
+		logger.trace(`Reusing in-flight refresh for ${notebookUri.fsPath}`);
+		return pending;
+	}
+
+	// Clear any existing debounce timer
+	const existingTimer = debounceTimers.get(cacheKey);
+	if (existingTimer) {
+		clearTimeout(existingTimer);
+	}
+
+	// Create a debounced promise that will execute after the delay
+	const refreshPromise = new Promise<{ entries: DataArrayEntry[]; error?: string }>((resolve) => {
+		const timer = setTimeout(async () => {
+			debounceTimers.delete(cacheKey);
+			const result = await doRefreshDataArrayCache(notebookUri, cacheKey);
+			resolve(result);
+		}, REFRESH_DEBOUNCE_MS);
+		debounceTimers.set(cacheKey, timer);
+	});
+
+	// Track this as the pending refresh
+	pendingRefreshes.set(cacheKey, refreshPromise);
+
+	return refreshPromise;
 }
 
 /**
@@ -143,6 +201,17 @@ export function getCachedDataArrayEntries(
 	const cacheKey = getNotebookCacheKey(notebookUri);
 	const notebookCache = dataArrayCache.get(cacheKey);
 	return notebookCache ? Array.from(notebookCache.values()) : [];
+}
+
+/**
+ * Get the pending refresh promise for a notebook, if any.
+ * This allows callers to await an in-flight refresh without triggering a new one.
+ */
+export function getPendingRefresh(
+	notebookUri: vscode.Uri
+): Promise<{ entries: DataArrayEntry[]; error?: string }> | undefined {
+	const cacheKey = getNotebookCacheKey(notebookUri);
+	return pendingRefreshes.get(cacheKey);
 }
 
 /**

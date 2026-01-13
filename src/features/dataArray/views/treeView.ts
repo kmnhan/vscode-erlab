@@ -5,7 +5,7 @@ import * as vscode from 'vscode';
 import type { PinnedDataArrayStore } from './pinnedStore';
 import type { DataArrayEntry } from '../types';
 import { formatDimsWithSizes } from '../formatting';
-import { refreshDataArrayCache, getCachedDataArrayEntries } from '../service';
+import { refreshDataArrayCache, getCachedDataArrayEntries, getPendingRefresh } from '../service';
 import { getActiveNotebookUri } from '../../../notebook';
 import { logger } from '../../../logger';
 
@@ -94,16 +94,30 @@ export class DataArrayPanelProvider implements vscode.TreeDataProvider<vscode.Tr
 			this.lastItems = [new DataArrayMessageItem('Open a notebook to see DataArrays.')];
 			return this.lastItems;
 		}
-		// Try to get cached entries first, refresh cache if empty
+		// Try to get cached entries first
 		let entries = getCachedDataArrayEntries(notebookUri);
 		if (entries.length === 0) {
-			const result = await refreshDataArrayCache(notebookUri);
-			if (result.error) {
-				this.itemsByName.clear();
-				this.lastItems = [new DataArrayMessageItem(result.error)];
-				return this.lastItems;
+			// Check if there's already a refresh in progress, await it instead of triggering a new one
+			const pending = getPendingRefresh(notebookUri);
+			if (pending) {
+				logger.trace('Tree view awaiting pending refresh');
+				const result = await pending;
+				if (result.error) {
+					this.itemsByName.clear();
+					this.lastItems = [new DataArrayMessageItem(result.error)];
+					return this.lastItems;
+				}
+				entries = result.entries;
+			} else {
+				// No pending refresh and cache is empty - trigger one
+				const result = await refreshDataArrayCache(notebookUri);
+				if (result.error) {
+					this.itemsByName.clear();
+					this.lastItems = [new DataArrayMessageItem(result.error)];
+					return this.lastItems;
+				}
+				entries = result.entries;
 			}
-			entries = result.entries;
 		}
 		if (entries.length === 0) {
 			this.itemsByName.clear();
