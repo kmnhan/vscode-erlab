@@ -179,6 +179,64 @@ export function activate(context: vscode.ExtensionContext) {
 		() => requestDataArrayRefresh()
 	);
 
+	// Additional tool magic commands
+	const ktoolDisposable = registerMagicCommand(
+		'erlab.ktool',
+		'ktool',
+		(variableName) => variableName
+	);
+
+	const dtoolDisposable = registerMagicCommand(
+		'erlab.dtool',
+		'dtool',
+		(variableName) => variableName
+	);
+
+	const restoolDisposable = registerMagicCommand(
+		'erlab.restool',
+		'restool',
+		(variableName) => variableName
+	);
+
+	const meshtoolDisposable = registerMagicCommand(
+		'erlab.meshtool',
+		'meshtool',
+		(variableName) => variableName
+	);
+
+	const ftoolDisposable = registerMagicCommand(
+		'erlab.ftool',
+		'ftool',
+		(variableName) => variableName
+	);
+
+	const goldtoolDisposable = registerMagicCommand(
+		'erlab.goldtool',
+		'goldtool',
+		(variableName) => variableName
+	);
+
+	// Quick Pick command for other tools
+	const otherToolsDisposable = vscode.commands.registerCommand(
+		'erlab.dataArray.otherTools',
+		async (args?: MagicCommandArgs) => {
+			const tools = [
+				{ label: '$(open-in-product) ktool', description: 'momentum conversion', command: 'erlab.ktool' },
+				{ label: '$(open-in-product) dtool', description: 'visualizing dispersive features', command: 'erlab.dtool' },
+				{ label: '$(open-in-product) goldtool', description: 'Fermi edge fitting', command: 'erlab.goldtool' },
+				{ label: '$(open-in-product) ftool', description: 'general curve fitting', command: 'erlab.ftool' },
+				{ label: '$(open-in-product) restool', description: 'fitting energy resolution', command: 'erlab.restool' },
+				{ label: '$(open-in-product) meshtool', description: 'mesh pattern removal', command: 'erlab.meshtool' },
+			];
+			const selected = await vscode.window.showQuickPick(tools, {
+				placeHolder: 'Select a tool to open',
+			});
+			if (selected) {
+				await vscode.commands.executeCommand(selected.command, args);
+			}
+		}
+	);
+
 	// ─────────────────────────────────────────────────────────────────────────
 	// Hover provider
 	// ─────────────────────────────────────────────────────────────────────────
@@ -521,6 +579,13 @@ export function activate(context: vscode.ExtensionContext) {
 		watchDisposable,
 		itoolDisposable,
 		unwatchDisposable,
+		ktoolDisposable,
+		dtoolDisposable,
+		restoolDisposable,
+		meshtoolDisposable,
+		ftoolDisposable,
+		goldtoolDisposable,
+		otherToolsDisposable,
 		hoverDisposable,
 		selectionDisposable,
 		activeEditorDisposable,

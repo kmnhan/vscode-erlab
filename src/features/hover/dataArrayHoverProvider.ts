@@ -57,14 +57,16 @@ export function registerDataArrayHoverProvider(
 					`[$(eye) Show](command:erlab.watch?${encodeCommandArgs({ variableName })}) | ` +
 					`[$(eye-closed) Unwatch](command:erlab.unwatch?${encodeCommandArgs({ variableName })}) | ` +
 					`[$(empty-window) ImageTool](command:erlab.dataArray.openInImageTool?${hoverArgs}) | ` +
-					`[$(pin) ${isPinned ? 'Unpin' : 'Pin'}](command:erlab.dataArray.togglePin?${encodeCommandArgs({ variableName, reveal: !isPinned })})\n`
+					`[$(pin) ${isPinned ? 'Unpin' : 'Pin'}](command:erlab.dataArray.togglePin?${encodeCommandArgs({ variableName, reveal: !isPinned })}) | ` +
+					`[$(ellipsis) More...](command:erlab.dataArray.otherTools?${encodeCommandArgs({ variableName })})\n`
 				);
 			} else {
 				md.appendMarkdown(
 					`[$(list-flat) Details](command:erlab.dataArray.openDetail?${hoverArgs}) | ` +
 					`[$(eye) Watch](command:erlab.watch?${encodeCommandArgs({ variableName })}) | ` +
 					`[$(empty-window) ImageTool](command:erlab.dataArray.openInImageTool?${hoverArgs}) | ` +
-					`[$(pin) ${isPinned ? 'Unpin' : 'Pin'}](command:erlab.dataArray.togglePin?${encodeCommandArgs({ variableName, reveal: !isPinned })})\n`
+					`[$(pin) ${isPinned ? 'Unpin' : 'Pin'}](command:erlab.dataArray.togglePin?${encodeCommandArgs({ variableName, reveal: !isPinned })}) | ` +
+					`[$(ellipsis) More...](command:erlab.dataArray.otherTools?${encodeCommandArgs({ variableName })})\n`
 				);
 			}
 			md.isTrusted = true;

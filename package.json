@@ -45,6 +45,41 @@
         "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray && erlab.isDataArrayWatched"
       },
       {
+        "command": "erlab.ktool",
+        "title": "erlab: Open in ktool",
+        "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray"
+      },
+      {
+        "command": "erlab.dtool",
+        "title": "erlab: Open in dtool",
+        "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray"
+      },
+      {
+        "command": "erlab.restool",
+        "title": "erlab: Open in restool",
+        "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray"
+      },
+      {
+        "command": "erlab.meshtool",
+        "title": "erlab: Open in meshtool",
+        "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray"
+      },
+      {
+        "command": "erlab.ftool",
+        "title": "erlab: Open in ftool",
+        "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray"
+      },
+      {
+        "command": "erlab.goldtool",
+        "title": "erlab: Open in goldtool",
+        "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray"
+      },
+      {
+        "command": "erlab.dataArray.otherTools",
+        "title": "erlab: Other Tools...",
+        "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray"
+      },
+      {
         "command": "erlab.dataArray.refresh",
         "title": "erlab: Refresh DataArrays",
         "icon": "$(refresh)",

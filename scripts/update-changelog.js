@@ -1,6 +1,6 @@
 // scripts/update-changelog.js
 // Automatically updates CHANGELOG.md during `npm version` to replace
-// ## [Unreleased] with ## [Unreleased]\n\n## [vX.X.X] - YYYY-MM-DD
+// ## [Unreleased] with [vX.X.X] - YYYY-MM-DD
 
 const fs = require("fs");
 const path = require("path");
@@ -12,7 +12,7 @@ const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
 const changelog = fs.readFileSync(changelogPath, "utf8");
 
 const date = new Date().toISOString().split("T")[0];
-const newSection = `## [Unreleased]\n\n## [v${pkg.version}] - ${date}`;
+const newSection = `## [v${pkg.version}] - ${date}`;
 
 const updated = changelog.replace("## [Unreleased]", newSection);
 

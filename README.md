@@ -20,6 +20,8 @@ actions to:
 - Watch/unwatch the DataArray to sync it with the [ImageTool Manager](https://erlabpy.readthedocs.io/en/stable/user-guide/interactive/manager.html).
 - Open the DataArray detail panel with its HTML representation.
 - Pin DataArrays to keep them at the top of the list.
+- Access additional tools (ktool, dtool, restool, meshtool, ftool, goldtool) via the
+  "More..." button.
 - Use a per-cell status bar button to open a DataArray when the last line of a cell is a
   DataArray variable.
 
@@ -41,6 +43,13 @@ invoked from the DataArrays panel.
 - `erlab.watch` - Watch a DataArray (or show it if already watched).
 - `erlab.unwatch` - Stop watching a DataArray.
 - `erlab.itool` - Open the DataArray in the ImageTool.
+- `erlab.ktool` - Open the DataArray in ktool (momentum conversion).
+- `erlab.dtool` - Open the DataArray in dtool (visualizing dispersive features).
+- `erlab.restool` - Open the DataArray in restool (fitting energy resolution).
+- `erlab.meshtool` - Open the DataArray in meshtool.
+- `erlab.ftool` - Open the DataArray in ftool (general curve fitting).
+- `erlab.goldtool` - Open the DataArray in goldtool (Fermi edge fitting).
+- `erlab.dataArray.otherTools` - Show a picker to select from additional tools.
 
 ## Settings
 

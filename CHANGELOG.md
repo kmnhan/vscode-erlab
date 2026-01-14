@@ -4,6 +4,9 @@ All notable changes to the extension will be documented in this file.
 
 ## [Unreleased]
 
+- Add "More..." button to DataArray hover menu with quick access to additional tools:
+  `ktool`, `dtool`, `restool`, `meshtool`, `ftool`, and `goldtool`.
+
 ## [v0.2.1] - 2026-01-13
 
 - Add settings to configure DataArray HTML representation verbosity:

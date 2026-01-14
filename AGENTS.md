@@ -126,6 +126,9 @@ This extension requires `ms-toolsai.jupyter` (Jupyter extension) to be installed
 - Use `vscode.commands.registerCommand` for command registration
 - Kernel communication goes through `KernelClient` class
 - Python code snippets are defined in `pythonSnippets.ts`
+- Add a `CHANGELOG.md` entry only when changes alter extension behavior or introduce a new feature
+- Update `README.md` when adding or modifying user-facing features, commands, or actions
+- When adding new commands, always add them to both `package.json` AND the Commands section in `README.md`
 
 ## Common Tasks
 
