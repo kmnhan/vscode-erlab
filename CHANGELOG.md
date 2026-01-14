@@ -6,6 +6,8 @@ All notable changes to the extension will be documented in this file.
 
 - Add "More..." button to DataArray hover menu with quick access to additional tools:
   `ktool`, `dtool`, `restool`, `meshtool`, `ftool`, and `goldtool`.
+- Show persistent icons in the DataArray tree view: an eye icon for watched items and
+  an array icon for unwatched items.
 
 ## [v0.2.1] - 2026-01-13
 

@@ -127,9 +127,25 @@ This extension requires `ms-toolsai.jupyter` (Jupyter extension) to be installed
 - Use `vscode.commands.registerCommand` for command registration
 - Kernel communication goes through `KernelClient` class
 - Python code snippets are defined in `pythonSnippets.ts`
-- Add a `CHANGELOG.md` entry only when changes alter extension behavior or introduce a new feature; if `CHANGELOG.md` lacks a `## [Unreleased]` section, add it and write the entry there
 - Update `README.md` when adding or modifying user-facing features, commands, or actions
 - When adding new commands, always add them to both `package.json` AND the Commands section in `README.md`
+
+### Changelog Requirements
+
+**Always add a `CHANGELOG.md` entry when making user-visible changes.** This includes:
+
+- New features or UI elements (icons, tree items, panels, hover actions)
+- Changes to existing behavior users can observe
+- New commands or settings
+- Bug fixes that affect user experience
+
+Do NOT add changelog entries for:
+
+- Internal refactoring with no visible impact
+- Test-only changes
+- Documentation-only changes (unless README feature docs)
+
+If `CHANGELOG.md` lacks a `## [Unreleased]` section, create it before adding the entry.
 
 ## Common Tasks
 

@@ -176,7 +176,9 @@ export class DataArrayTreeItem extends vscode.TreeItem {
 		);
 		tooltip.supportThemeIcons = true;
 		this.tooltip = tooltip;
-		this.iconPath = undefined;
+		this.iconPath = info.watched
+			? new vscode.ThemeIcon('eye')
+			: new vscode.ThemeIcon('symbol-array');
 		this.command = {
 			command: 'erlab.dataArray.openDetail',
 			title: 'Open DataArray Details',
