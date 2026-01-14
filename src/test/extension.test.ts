@@ -8,9 +8,10 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { execFile } from 'child_process';
+import { execFile, spawn, type ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import * as vscode from 'vscode';
+import { buildXarrayQueryCode } from '../features/xarray/pythonSnippets';
 
 const execFileAsync = promisify(execFile);
 
@@ -161,6 +162,7 @@ suite('E2E Tests (Python/Jupyter)', function () {
 	let venvDir = '';
 	let venvPython = '';
 	let useProvidedVenv = false;
+	let itoolManagerProcess: ChildProcess | undefined;
 
 	suiteSetup(async function () {
 		this.timeout(300_000); // 5 minutes for setup
@@ -185,25 +187,81 @@ suite('E2E Tests (Python/Jupyter)', function () {
 		// Skip venv creation and pip install if using provided venv
 		if (useProvidedVenv) {
 			console.log('[erlab] Skipping venv setup (using provided venv).');
-			return;
+		} else {
+			console.log(`[erlab] Using Python: ${pythonBinary}`);
+			await execFileAsync(pythonBinary, ['-m', 'venv', venvDir]);
+
+			console.log('[erlab] Upgrading pip...');
+			await execFileAsync(venvPython, ['-m', 'pip', 'install', '--upgrade', 'pip']);
+
+			console.log('[erlab] Installing erlab dependencies (this can take a while)...');
+			await execFileAsync(venvPython, ['-m', 'pip', 'install', 'erlab', 'pyqt6', 'ipykernel'], {
+				timeout: 240_000, // 4 minute timeout for install
+			});
+
+			console.log('[erlab] erlab dependencies installed.');
 		}
 
-		console.log(`[erlab] Using Python: ${pythonBinary}`);
-		await execFileAsync(pythonBinary, ['-m', 'venv', venvDir]);
+		async function isItoolManagerRunning(): Promise<boolean> {
+			const code = [
+				'import erlab.interactive.imagetool.manager as manager',
+				'print("1" if manager.is_running() else "0")',
+			].join('\n');
+			try {
+				const { stdout } = await execFileAsync(venvPython, ['-c', code], { timeout: 10_000 });
+				return stdout.trim().endsWith('1');
+			} catch (err) {
+				console.warn('[erlab] itool-manager check failed:', err);
+				return false;
+			}
+		}
 
-		console.log('[erlab] Upgrading pip...');
-		await execFileAsync(venvPython, ['-m', 'pip', 'install', '--upgrade', 'pip']);
+		async function waitForItoolManagerReady(): Promise<void> {
+			const start = Date.now();
+			while (Date.now() - start < 15_000) {
+				if (itoolManagerProcess?.exitCode !== null && itoolManagerProcess?.exitCode !== undefined) {
+					throw new Error('itool-manager exited before becoming ready.');
+				}
+				if (await isItoolManagerRunning()) {
+					return;
+				}
+				await new Promise((resolve) => setTimeout(resolve, 250));
+			}
+			throw new Error('itool-manager did not become ready in time.');
+		}
 
-		console.log('[erlab] Installing erlab dependencies (this can take a while)...');
-		await execFileAsync(venvPython, ['-m', 'pip', 'install', 'erlab', 'pyqt6', 'ipykernel'], {
-			timeout: 240_000, // 4 minute timeout for install
-		});
+		async function startItoolManager(): Promise<void> {
+			if (await isItoolManagerRunning()) {
+				console.log('[erlab] itool-manager already running; skipping startup.');
+				return;
+			}
+			const isWindows = process.platform === 'win32';
+			const managerPath = isWindows
+				? path.join(venvDir, 'Scripts', 'itool-manager.exe')
+				: path.join(venvDir, 'bin', 'itool-manager');
 
-		console.log('[erlab] erlab dependencies installed.');
+			itoolManagerProcess = spawn(managerPath, [], {
+				env: {
+					...process.env,
+					QT_QPA_PLATFORM: process.env.QT_QPA_PLATFORM ?? 'offscreen',
+				},
+				stdio: ['ignore', 'pipe', 'pipe'],
+			});
+
+			await waitForItoolManagerReady();
+			console.log('[erlab] itool-manager started.');
+		}
+
+		await startItoolManager();
 	});
 
 	suiteTeardown(async function () {
 		this.timeout(30_000);
+		if (itoolManagerProcess && !itoolManagerProcess.killed) {
+			itoolManagerProcess.kill();
+			itoolManagerProcess = undefined;
+			console.log('[erlab] itool-manager stopped.');
+		}
 		// Don't delete the venv if it was provided externally (cached venv)
 		if (venvDir && !useProvidedVenv) {
 			try {
@@ -286,5 +344,53 @@ suite('E2E Tests (Python/Jupyter)', function () {
 
 		const { stdout } = await execFileAsync(venvPython, ['-c', code]);
 		assert.ok(stdout.includes('OK'), 'Expected OK output');
+	});
+
+	test('Watch/unwatch keeps DataArrays in xarray query results', async function () {
+		this.timeout(60_000);
+
+		const queryCode = buildXarrayQueryCode();
+		const code = [
+			'import json',
+			'import numpy as np',
+			'import xarray as xr',
+			'import IPython',
+			'from IPython.terminal.interactiveshell import TerminalInteractiveShell',
+			'ip = TerminalInteractiveShell.instance()',
+			'ip.run_line_magic("load_ext", "erlab.interactive")',
+			'ip.user_ns["a"] = xr.DataArray(np.random.rand(2, 2), dims=["x", "y"], name="a")',
+			'ip.user_ns["b"] = xr.DataArray(np.random.rand(2, 2), dims=["x", "y"], name="b")',
+			'ip.run_line_magic("watch", "a")',
+			`query_code = ${JSON.stringify(queryCode)}`,
+			'exec(query_code)',
+			'ip.run_line_magic("watch", "-d a")',
+			'exec(query_code)',
+		].join('\n');
+
+		const { stdout } = await execFileAsync(venvPython, ['-c', code]);
+		const jsonLines = stdout
+			.split(/\r?\n/)
+			.map((line) => line.trim())
+			.filter((line) => line.startsWith('['));
+		assert.ok(jsonLines.length >= 2, 'Expected two xarray query outputs');
+
+		const first = JSON.parse(jsonLines[jsonLines.length - 2]) as Array<{ variableName: string; watched?: boolean }>;
+		const second = JSON.parse(jsonLines[jsonLines.length - 1]) as Array<{ variableName: string; watched?: boolean }>;
+
+		const findEntry = (entries: Array<{ variableName: string; watched?: boolean }>, name: string) =>
+			entries.find((entry) => entry.variableName === name);
+
+		const firstA = findEntry(first, 'a');
+		const firstB = findEntry(first, 'b');
+		assert.ok(firstA, 'Expected a in first query results');
+		assert.ok(firstB, 'Expected b in first query results');
+		assert.strictEqual(firstA?.watched, true, 'Expected a to be watched after watch');
+		assert.strictEqual(firstB?.watched, false, 'Expected b to be unwatched after watch');
+
+		const secondA = findEntry(second, 'a');
+		const secondB = findEntry(second, 'b');
+		assert.ok(secondA, 'Expected a in second query results');
+		assert.ok(secondB, 'Expected b in second query results');
+		assert.strictEqual(secondA?.watched, false, 'Expected a to be unwatched after unwatch');
 	});
 });
