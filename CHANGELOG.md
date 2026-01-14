@@ -2,6 +2,11 @@
 
 All notable changes to the extension will be documented in this file.
 
+## [Unreleased]
+
+- Fix xarray objects disappearing after watch/unwatch or ImageTool actions, and make
+  refresh re-query the kernel to restore list state.
+
 ## [v0.3.0] - 2026-01-14
 
 - **Breaking**: Rename command namespace from `erlab.dataArray.*` to `erlab.xarray.*`

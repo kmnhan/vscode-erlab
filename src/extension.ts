@@ -28,7 +28,6 @@ import {
 	refreshXarrayCache,
 	isXarrayInCache,
 	getCachedXarrayEntry,
-	invalidateXarrayCacheEntry,
 	PinnedXarrayStore,
 	XarrayPanelProvider,
 	XarrayDetailViewProvider,
@@ -109,9 +108,6 @@ export function activate(context: vscode.ExtensionContext) {
 				: buildMagicInvocation(magicName, buildArgs(variableName));
 			const output = await executeInKernel(notebookUri, code);
 			showMagicOutput(output);
-			if (notebookUri) {
-				invalidateXarrayCacheEntry(notebookUri, variableName);
-			}
 			if (onDidExecute) {
 				await onDidExecute(variableName, editor.document);
 			}
@@ -136,11 +132,19 @@ export function activate(context: vscode.ExtensionContext) {
 		'erlabXarrayDetail',
 		xarrayDetailProvider
 	);
-	const requestXarrayRefresh = (): void => {
+	const requestXarrayRefresh = async (
+		options?: { refreshCache?: boolean; notebookUri?: vscode.Uri }
+	): Promise<void> => {
+		if (options?.refreshCache) {
+			const notebookUri = options.notebookUri ?? getActiveNotebookUri();
+			if (notebookUri) {
+				await refreshXarrayCache(notebookUri);
+			}
+		}
 		xarrayPanelProvider.requestRefresh();
 	};
 	const xarrayVisibilityDisposable = xarrayTreeView.onDidChangeVisibility(() => {
-		requestXarrayRefresh();
+		void requestXarrayRefresh();
 	});
 
 	// Populate cache on initial activation if there's an active notebook
@@ -157,7 +161,10 @@ export function activate(context: vscode.ExtensionContext) {
 		'watch',
 		(variableName) => variableName,
 		undefined,
-		() => requestXarrayRefresh()
+		async (_variableName, document) => {
+			const notebookUri = getNotebookUriForDocument(document);
+			await requestXarrayRefresh({ refreshCache: true, notebookUri });
+		}
 	);
 
 	const itoolDisposable = registerMagicCommand(
@@ -176,7 +183,10 @@ export function activate(context: vscode.ExtensionContext) {
 		'watch',
 		(variableName) => `-d ${variableName}`,
 		undefined,
-		() => requestXarrayRefresh()
+		async (_variableName, document) => {
+			const notebookUri = getNotebookUriForDocument(document);
+			await requestXarrayRefresh({ refreshCache: true, notebookUri });
+		}
 	);
 
 	// Additional tool magic commands
@@ -288,18 +298,19 @@ export function activate(context: vscode.ExtensionContext) {
 		if (!editor || !isNotebookCellDocument(editor.document)) {
 			await vscode.commands.executeCommand('setContext', DATA_ARRAY_CONTEXT, false);
 			await vscode.commands.executeCommand('setContext', DATA_ARRAY_WATCHED_CONTEXT, false);
-			requestXarrayRefresh();
+			void requestXarrayRefresh();
 			return;
 		}
-		requestXarrayRefresh();
+		void requestXarrayRefresh();
 	});
 
 	const activeNotebookDisposable = vscode.window.onDidChangeActiveNotebookEditor(async (editor) => {
 		// Refresh cache when switching notebooks (debounced)
 		if (editor) {
-			await refreshXarrayCache(editor.notebook.uri);
+			await requestXarrayRefresh({ refreshCache: true, notebookUri: editor.notebook.uri });
+			return;
 		}
-		requestXarrayRefresh();
+		void requestXarrayRefresh();
 	});
 
 	// ─────────────────────────────────────────────────────────────────────────
@@ -327,7 +338,7 @@ export function activate(context: vscode.ExtensionContext) {
 			await refreshXarrayCache(activeNotebook);
 			// Note: requestXarrayRefresh is called after cache refresh completes
 			// to update tree view with new data
-			requestXarrayRefresh();
+			void requestXarrayRefresh();
 		}
 	});
 
@@ -382,7 +393,7 @@ export function activate(context: vscode.ExtensionContext) {
 	// ─────────────────────────────────────────────────────────────────────────
 	const refreshDataArrayPanelDisposable = vscode.commands.registerCommand(
 		'erlab.xarray.refresh',
-		() => requestXarrayRefresh()
+		() => requestXarrayRefresh({ refreshCache: true })
 	);
 
 	const openDataArrayDetailDisposable = vscode.commands.registerCommand(
@@ -422,7 +433,7 @@ export function activate(context: vscode.ExtensionContext) {
 			} else {
 				await pinnedStore.pin(notebookUri, variableName);
 			}
-			requestXarrayRefresh();
+			void requestXarrayRefresh();
 			if (!isPinned && normalized?.reveal) {
 				await vscode.commands.executeCommand('workbench.view.extension.erlab');
 				await xarrayPanelProvider.reveal(variableName);
@@ -445,7 +456,7 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 			if (!pinnedStore.isPinned(notebookUri, variableName)) {
 				await pinnedStore.pin(notebookUri, variableName);
-				requestXarrayRefresh();
+				void requestXarrayRefresh();
 			}
 		}
 	);
@@ -465,7 +476,7 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 			if (pinnedStore.isPinned(notebookUri, variableName)) {
 				await pinnedStore.unpin(notebookUri, variableName);
-				requestXarrayRefresh();
+				void requestXarrayRefresh();
 			}
 		}
 	);
@@ -485,7 +496,7 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 			const watched = Boolean(normalized?.watched);
 			await vscode.commands.executeCommand(watched ? 'erlab.unwatch' : 'erlab.watch', { variableName });
-			requestXarrayRefresh();
+			void requestXarrayRefresh();
 		}
 	);
 
@@ -498,7 +509,7 @@ export function activate(context: vscode.ExtensionContext) {
 				return;
 			}
 			await vscode.commands.executeCommand('erlab.watch', { variableName });
-			requestXarrayRefresh();
+			void requestXarrayRefresh();
 		}
 	);
 
@@ -511,7 +522,7 @@ export function activate(context: vscode.ExtensionContext) {
 				return;
 			}
 			await vscode.commands.executeCommand('erlab.unwatch', { variableName });
-			requestXarrayRefresh();
+			void requestXarrayRefresh();
 		}
 	);
 
