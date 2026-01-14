@@ -6,7 +6,7 @@ import {
 	extractLastJsonLine,
 	normalizeKernelError,
 	decodeKernelOutputItem,
-} from '../../kernel/kernelClient';
+} from '../../kernel/outputParsing';
 
 suite('Kernel Output Parsing', () => {
 	suite('extractLastJsonLine', () => {

@@ -36,6 +36,7 @@ src/
 │   └── hover/            # Hover provider for notebooks
 ├── kernel/               # Jupyter kernel communication
 │   ├── kernelClient.ts   # Kernel execution and result parsing
+│   ├── outputParsing.ts  # Output parsing helpers (unit-test safe)
 │   └── types.ts          # Kernel-related types
 ├── notebook/             # Notebook utilities
 │   ├── notebookUris.ts   # URI handling for notebook cells
