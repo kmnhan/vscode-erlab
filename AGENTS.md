@@ -4,7 +4,7 @@ This file provides guidance for AI coding agents working on this repository.
 
 ## Project Overview
 
-**vscode-erlab** is a VS Code extension for working with xarray DataArrays and the [ERLab](https://github.com/kmnhan/erlabpy) Python package in Jupyter Notebooks. It provides hover actions, tree views, and magic commands for ARPES (Angle-Resolved Photoemission Spectroscopy) data analysis workflows.
+**vscode-erlab** is a VS Code extension for working with xarray objects (DataArray, Dataset, DataTree) and the [ERLab](https://github.com/kmnhan/erlabpy) Python package in Jupyter Notebooks. It provides hover actions, tree views, and magic commands for ARPES (Angle-Resolved Photoemission Spectroscopy) data analysis workflows.
 
 ## Tech Stack
 
@@ -15,7 +15,7 @@ This file provides guidance for AI coding agents working on this repository.
 - **Testing:**
   - Unit tests: Mocha (no VS Code required)
   - Integration/E2E tests: `@vscode/test-cli` + `@vscode/test-electron`
-- **Python Integration:** Jupyter kernel communication for DataArray inspection
+- **Python Integration:** Jupyter kernel communication for xarray object inspection
 
 ## Project Structure
 
@@ -27,10 +27,11 @@ src/
 │   ├── args.ts           # Command argument parsing
 │   └── magicInvocation.ts # IPython magic execution
 ├── features/
-│   ├── dataArray/        # DataArray panel feature
-│   │   ├── service.ts    # Core service for fetching DataArrays from kernel
+│   ├── xarray/           # xarray Objects panel feature
+│   │   ├── service.ts    # Core service for fetching xarray objects from kernel
 │   │   ├── formatting.ts # Display formatting utilities
-│   │   ├── types.ts      # TypeScript interfaces
+│   │   ├── types.ts      # TypeScript interfaces (XarrayEntry, XarrayObjectType)
+│   │   ├── pythonSnippets.ts # Python code for object detection
 │   │   └── views/        # Tree view and detail panel UI
 │   └── hover/            # Hover provider for notebooks
 ├── kernel/               # Jupyter kernel communication
@@ -67,7 +68,7 @@ npm run test:e2e:cached  # Run E2E tests using cached venv
 
 Located in `src/test/unit/`. These test pure functions without VS Code dependencies:
 
-- `formatting.test.ts` - DataArray formatting
+- `formatting.test.ts` - xarray label formatting
 - `identifiers.test.ts` - Python identifier validation
 - `kernelParsing.test.ts` - Kernel response parsing
 - `commandArgs.test.ts` - Command argument parsing
@@ -123,7 +124,7 @@ This extension requires `ms-toolsai.jupyter` (Jupyter extension) to be installed
 
 - Use TypeScript strict mode
 - Prefix internal commands with `erlab.`
-- DataArray-related commands use `erlab.dataArray.*` namespace
+- xarray panel commands use `erlab.xarray.*` namespace
 - Use `vscode.commands.registerCommand` for command registration
 - Kernel communication goes through `KernelClient` class
 - Python code snippets are defined in `pythonSnippets.ts`
@@ -163,4 +164,4 @@ If `CHANGELOG.md` lacks a `## [Unreleased]` section, create it before adding the
 
 ### Modifying Python snippets
 
-Edit `src/features/dataArray/pythonSnippets.ts` - these are executed in the Jupyter kernel.
+Edit `src/features/xarray/pythonSnippets.ts` - these are executed in the Jupyter kernel.

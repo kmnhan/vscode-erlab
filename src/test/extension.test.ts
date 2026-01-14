@@ -63,17 +63,17 @@ suite('Extension Integration Tests', () => {
 		assert.ok(commands.includes('erlab.unwatch'), 'Expected erlab.unwatch command');
 		assert.ok(commands.includes('erlab.itool'), 'Expected erlab.itool command');
 
-		// DataArray panel commands
-		assert.ok(commands.includes('erlab.dataArray.refresh'), 'Expected erlab.dataArray.refresh command');
-		assert.ok(commands.includes('erlab.dataArray.openDetail'), 'Expected erlab.dataArray.openDetail command');
-		assert.ok(commands.includes('erlab.dataArray.togglePin'), 'Expected erlab.dataArray.togglePin command');
-		assert.ok(commands.includes('erlab.dataArray.pin'), 'Expected erlab.dataArray.pin command');
-		assert.ok(commands.includes('erlab.dataArray.unpin'), 'Expected erlab.dataArray.unpin command');
-		assert.ok(commands.includes('erlab.dataArray.toggleWatch'), 'Expected erlab.dataArray.toggleWatch command');
-		assert.ok(commands.includes('erlab.dataArray.watch'), 'Expected erlab.dataArray.watch command');
-		assert.ok(commands.includes('erlab.dataArray.unwatch'), 'Expected erlab.dataArray.unwatch command');
-		assert.ok(commands.includes('erlab.dataArray.openInImageTool'), 'Expected erlab.dataArray.openInImageTool command');
-		assert.ok(commands.includes('erlab.dataArray.goToDefinition'), 'Expected erlab.dataArray.goToDefinition command');
+		// xarray panel commands
+		assert.ok(commands.includes('erlab.xarray.refresh'), 'Expected erlab.xarray.refresh command');
+		assert.ok(commands.includes('erlab.xarray.openDetail'), 'Expected erlab.xarray.openDetail command');
+		assert.ok(commands.includes('erlab.xarray.togglePin'), 'Expected erlab.xarray.togglePin command');
+		assert.ok(commands.includes('erlab.xarray.pin'), 'Expected erlab.xarray.pin command');
+		assert.ok(commands.includes('erlab.xarray.unpin'), 'Expected erlab.xarray.unpin command');
+		assert.ok(commands.includes('erlab.xarray.toggleWatch'), 'Expected erlab.xarray.toggleWatch command');
+		assert.ok(commands.includes('erlab.xarray.watch'), 'Expected erlab.xarray.watch command');
+		assert.ok(commands.includes('erlab.xarray.unwatch'), 'Expected erlab.xarray.unwatch command');
+		assert.ok(commands.includes('erlab.xarray.openInImageTool'), 'Expected erlab.xarray.openInImageTool command');
+		assert.ok(commands.includes('erlab.xarray.goToDefinition'), 'Expected erlab.xarray.goToDefinition command');
 	});
 
 	test('Hover provider is notebook-only (does not show in .py files)', async () => {

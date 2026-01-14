@@ -1,15 +1,16 @@
 /**
- * DataArray detail webview provider for showing DataArray HTML representation.
+ * xarray detail webview provider for showing xarray object HTML representation.
  */
 import * as vscode from 'vscode';
 import { executeInKernelForOutput, extractLastJsonLine } from '../../../kernel';
-import { buildDataArrayHtmlCode, XarrayDisplayOptions } from '../pythonSnippets';
+import { buildXarrayHtmlCode, XarrayDisplayOptions } from '../pythonSnippets';
 import { logger } from '../../../logger';
+import type { XarrayObjectType } from '../types';
 
 /**
  * Build a full HTML document for the webview.
  */
-export function buildDataArrayHtml(content: string, cspSource?: string): string {
+export function buildXarrayHtml(content: string, cspSource?: string): string {
 	const csp = cspSource
 		? `default-src 'none'; style-src ${cspSource} 'unsafe-inline';`
 		: "default-src 'none'; style-src 'unsafe-inline';";
@@ -20,7 +21,7 @@ export function buildDataArrayHtml(content: string, cspSource?: string): string 
 		'  <meta charset="utf-8">',
 		'  <meta name="viewport" content="width=device-width, initial-scale=1.0">',
 		`  <meta http-equiv="Content-Security-Policy" content="${csp}">`,
-		'  <title>DataArray</title>',
+		'  <title>xarray Object</title>',
 		'</head>',
 		'<body>',
 		content,
@@ -30,9 +31,14 @@ export function buildDataArrayHtml(content: string, cspSource?: string): string 
 }
 
 /**
+ * @deprecated Use buildXarrayHtml instead
+ */
+export const buildDataArrayHtml = buildXarrayHtml;
+
+/**
  * Build an HTML message (escaped).
  */
-export function buildDataArrayMessage(message: string): string {
+export function buildXarrayMessage(message: string): string {
 	const escaped = message
 		.replace(/&/g, '&amp;')
 		.replace(/</g, '&lt;')
@@ -40,10 +46,15 @@ export function buildDataArrayMessage(message: string): string {
 	return `<pre>${escaped}</pre>`;
 }
 
-export class DataArrayDetailViewProvider implements vscode.WebviewViewProvider {
+/**
+ * @deprecated Use buildXarrayMessage instead
+ */
+export const buildDataArrayMessage = buildXarrayMessage;
+
+export class XarrayDetailViewProvider implements vscode.WebviewViewProvider {
 	private view?: vscode.WebviewView;
 	private executionInProgress = false;
-	private pendingDetail: { notebookUri: vscode.Uri; variableName: string } | undefined;
+	private pendingDetail: { notebookUri: vscode.Uri; variableName: string; type?: XarrayObjectType } | undefined;
 	private hasContent = false;
 	private lastHtml: string | undefined;
 
@@ -55,13 +66,13 @@ export class DataArrayDetailViewProvider implements vscode.WebviewViewProvider {
 			// lastHtml already contains CSP, but regenerate with current cspSource just in case
 			view.webview.html = this.lastHtml;
 		} else {
-			view.webview.html = buildDataArrayHtml(buildDataArrayMessage('Select a DataArray to see details.'), cspSource);
+			view.webview.html = buildXarrayHtml(buildXarrayMessage('Select an xarray object to see details.'), cspSource);
 		}
 		view.webview.options = { enableScripts: false };
 		if (this.pendingDetail) {
 			const pending = this.pendingDetail;
 			this.pendingDetail = undefined;
-			void this.showDetail(pending.notebookUri, pending.variableName);
+			void this.showDetail(pending.notebookUri, pending.variableName, pending.type);
 		}
 	}
 
@@ -70,11 +81,11 @@ export class DataArrayDetailViewProvider implements vscode.WebviewViewProvider {
 		if (!active && this.pendingDetail) {
 			const pending = this.pendingDetail;
 			this.pendingDetail = undefined;
-			void this.showDetail(pending.notebookUri, pending.variableName);
+			void this.showDetail(pending.notebookUri, pending.variableName, pending.type);
 		}
 	}
 
-	async showDetail(notebookUri: vscode.Uri, variableName: string): Promise<void> {
+	async showDetail(notebookUri: vscode.Uri, variableName: string, type?: XarrayObjectType): Promise<void> {
 		logger.info(`Fetching HTML for variable ${variableName}`);
 		if (!this.view) {
 			logger.debug(`Detail view not ready, revealing erlab panel for ${variableName}`);
@@ -89,20 +100,22 @@ export class DataArrayDetailViewProvider implements vscode.WebviewViewProvider {
 			}
 			if (!this.view) {
 				logger.warn(`Detail view not resolved after ${maxWaitMs}ms, queuing request for ${variableName}`);
-				this.pendingDetail = { notebookUri, variableName };
+				this.pendingDetail = { notebookUri, variableName, type };
 				return;
 			}
 		}
 		if (!this.view.visible) {
 			this.view.show(false);
 		}
-		this.view.title = `DataArray: ${variableName}`;
+		// Show object type in title
+		const typeLabel = type ?? 'xarray';
+		this.view.title = `${typeLabel}: ${variableName}`;
 		const cspSource = this.view.webview.cspSource;
 		if (this.executionInProgress) {
-			this.pendingDetail = { notebookUri, variableName };
+			this.pendingDetail = { notebookUri, variableName, type };
 			if (!this.hasContent) {
-				this.view.webview.html = buildDataArrayHtml(
-					buildDataArrayMessage('Waiting for cell execution to finish…'),
+				this.view.webview.html = buildXarrayHtml(
+					buildXarrayMessage('Waiting for cell execution to finish…'),
 					cspSource
 				);
 				this.hasContent = true;
@@ -112,39 +125,44 @@ export class DataArrayDetailViewProvider implements vscode.WebviewViewProvider {
 		try {
 			const config = vscode.workspace.getConfiguration('erlab');
 			const displayOptions: XarrayDisplayOptions = {
-				displayExpandAttrs: config.get<boolean>('dataArray.displayExpandAttrs', true),
-				displayExpandCoords: config.get<boolean>('dataArray.displayExpandCoords', true),
-				displayExpandData: config.get<boolean>('dataArray.displayExpandData', false),
+				displayExpandAttrs: config.get<boolean>('xarray.displayExpandAttrs', true),
+				displayExpandCoords: config.get<boolean>('xarray.displayExpandCoords', true),
+				displayExpandData: config.get<boolean>('xarray.displayExpandData', false),
 			};
-			const output = await executeInKernelForOutput(notebookUri, buildDataArrayHtmlCode(variableName, displayOptions));
+			const output = await executeInKernelForOutput(notebookUri, buildXarrayHtmlCode(variableName, displayOptions));
 			const line = extractLastJsonLine(output);
 			if (!line) {
-				this.lastHtml = buildDataArrayHtml(buildDataArrayMessage('No HTML representation returned.'), cspSource);
+				this.lastHtml = buildXarrayHtml(buildXarrayMessage('No HTML representation returned.'), cspSource);
 				this.view.webview.html = this.lastHtml;
 				this.hasContent = true;
 				return;
 			}
 			const parsed = JSON.parse(line) as { html?: string | null; error?: string };
 			if (parsed?.error) {
-				this.lastHtml = buildDataArrayHtml(buildDataArrayMessage(parsed.error), cspSource);
+				this.lastHtml = buildXarrayHtml(buildXarrayMessage(parsed.error), cspSource);
 				this.view.webview.html = this.lastHtml;
 				this.hasContent = true;
 				return;
 			}
 			if (!parsed?.html) {
-				this.lastHtml = buildDataArrayHtml(buildDataArrayMessage('No HTML representation available.'), cspSource);
+				this.lastHtml = buildXarrayHtml(buildXarrayMessage('No HTML representation available.'), cspSource);
 				this.view.webview.html = this.lastHtml;
 				this.hasContent = true;
 				return;
 			}
-			this.lastHtml = buildDataArrayHtml(parsed.html, cspSource);
+			this.lastHtml = buildXarrayHtml(parsed.html, cspSource);
 			this.view.webview.html = this.lastHtml;
 			this.hasContent = true;
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			this.lastHtml = buildDataArrayHtml(buildDataArrayMessage(message), cspSource);
+			this.lastHtml = buildXarrayHtml(buildXarrayMessage(message), cspSource);
 			this.view.webview.html = this.lastHtml;
 			this.hasContent = true;
 		}
 	}
 }
+
+/**
+ * @deprecated Use XarrayDetailViewProvider instead
+ */
+export const DataArrayDetailViewProvider = XarrayDetailViewProvider;

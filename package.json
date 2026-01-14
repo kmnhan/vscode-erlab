@@ -3,7 +3,7 @@
   "displayName": "erlab",
   "version": "0.2.1",
   "publisher": "khan",
-  "description": "Extension for working with xarray DataArrays and the ERLab Python package in Jupyter Notebooks",
+  "description": "Extension for working with xarray objects and the ERLab Python package in Jupyter Notebooks",
   "author": {
     "name": "Kimoon Higashihira Han"
   },
@@ -13,7 +13,8 @@
   "keywords": [
     "ARPES",
     "erlab",
-    "erlabpy"
+    "erlabpy",
+    "xarray"
   ],
   "icon": "images/icon.png",
   "pricing": "Free",
@@ -75,68 +76,68 @@
         "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray"
       },
       {
-        "command": "erlab.dataArray.otherTools",
+        "command": "erlab.xarray.otherTools",
         "title": "erlab: Other Tools...",
         "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray"
       },
       {
-        "command": "erlab.dataArray.refresh",
-        "title": "erlab: Refresh DataArrays",
+        "command": "erlab.xarray.refresh",
+        "title": "erlab: Refresh xarray Objects",
         "icon": "$(refresh)",
-        "when": "view == erlabDataArrays"
+        "when": "view == erlabXarrayObjects"
       },
       {
-        "command": "erlab.dataArray.openDetail",
-        "title": "erlab: Open DataArray Details",
-        "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem.*/"
+        "command": "erlab.xarray.openDetail",
+        "title": "erlab: Open xarray Details",
+        "when": "view == erlabXarrayObjects && viewItem =~ /(dataArrayItem|datasetItem|datatreeItem).*/"
       },
       {
-        "command": "erlab.dataArray.togglePin",
-        "title": "erlab: Toggle DataArray Pin",
+"command": "erlab.xarray.togglePin",
+        "title": "erlab: Toggle Pin",
         "icon": "$(pin)",
-        "when": "view == erlabDataArrays && viewItem =~ /dataArrayItemPinned.*/"
+        "when": "view == erlabXarrayObjects && viewItem =~ /(dataArrayItem|datasetItem|datatreeItem)Pinned.*/"
       },
       {
-        "command": "erlab.dataArray.pin",
-        "title": "erlab: Pin DataArray",
+        "command": "erlab.xarray.pin",
+        "title": "erlab: Pin",
         "icon": "$(pin)",
-        "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem(Watched)?$/"
+        "when": "view == erlabXarrayObjects && viewItem =~ /(dataArrayItem(Watched)?|datasetItem|datatreeItem)$/"
       },
       {
-        "command": "erlab.dataArray.unpin",
-        "title": "erlab: Unpin DataArray",
+        "command": "erlab.xarray.unpin",
+        "title": "erlab: Unpin",
         "icon": "$(pinned)",
-        "when": "view == erlabDataArrays && viewItem =~ /dataArrayItemPinned.*/"
+        "when": "view == erlabXarrayObjects && viewItem =~ /(dataArrayItem|datasetItem|datatreeItem)Pinned.*/"
       },
       {
-        "command": "erlab.dataArray.toggleWatch",
+        "command": "erlab.xarray.toggleWatch",
         "title": "erlab: Toggle DataArray Watch",
         "icon": "$(eye)",
-        "when": "view == erlabDataArrays && viewItem =~ /dataArrayItemWatched.*/"
+        "when": "view == erlabXarrayObjects && viewItem =~ /dataArrayItemWatched.*/"
       },
       {
-        "command": "erlab.dataArray.watch",
+        "command": "erlab.xarray.watch",
         "title": "erlab: Watch DataArray",
         "icon": "$(eye)",
-        "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem(Pinned)?$/"
+        "when": "view == erlabXarrayObjects && viewItem =~ /dataArrayItem(Pinned)?$/"
       },
       {
-        "command": "erlab.dataArray.unwatch",
+        "command": "erlab.xarray.unwatch",
         "title": "erlab: Unwatch DataArray",
         "icon": "$(eye-closed)",
-        "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem.*Watched.*/"
+        "when": "view == erlabXarrayObjects && viewItem =~ /dataArrayItem.*Watched.*/"
       },
       {
-        "command": "erlab.dataArray.openInImageTool",
+        "command": "erlab.xarray.openInImageTool",
         "title": "erlab: Open DataArray in ImageTool",
         "icon": "$(empty-window)",
-        "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem.*/"
+        "when": "view == erlabXarrayObjects && viewItem =~ /dataArrayItem.*/"
       },
       {
-        "command": "erlab.dataArray.goToDefinition",
-        "title": "erlab: Go to DataArray Definition",
+        "command": "erlab.xarray.goToDefinition",
+        "title": "erlab: Go to Definition",
         "icon": "$(go-to-file)",
-        "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem.*/"
+        "when": "view == erlabXarrayObjects && viewItem =~ /(dataArrayItem|datasetItem|datatreeItem).*/"
       },
       {
         "command": "erlab.showOutput",
@@ -151,59 +152,59 @@
           "default": true,
           "description": "Uses the ImageTool Manager to open ImageTool windows if it is available."
         },
-        "erlab.dataArray.displayExpandAttrs": {
+        "erlab.xarray.displayExpandAttrs": {
           "type": "boolean",
           "default": true,
-          "description": "Expand attributes section in DataArray HTML representation."
+          "description": "Expand attributes section in xarray HTML representation."
         },
-        "erlab.dataArray.displayExpandCoords": {
+        "erlab.xarray.displayExpandCoords": {
           "type": "boolean",
           "default": true,
-          "description": "Expand coordinates section in DataArray HTML representation."
+          "description": "Expand coordinates section in xarray HTML representation."
         },
-        "erlab.dataArray.displayExpandData": {
+        "erlab.xarray.displayExpandData": {
           "type": "boolean",
           "default": false,
-          "description": "Expand data section in DataArray HTML representation."
+          "description": "Expand data section in xarray HTML representation."
         }
       }
     },
     "menus": {
       "commandPalette": [
         {
-          "command": "erlab.dataArray.openDetail",
+          "command": "erlab.xarray.openDetail",
           "when": "false"
         },
         {
-          "command": "erlab.dataArray.togglePin",
+          "command": "erlab.xarray.togglePin",
           "when": "false"
         },
         {
-          "command": "erlab.dataArray.pin",
+          "command": "erlab.xarray.pin",
           "when": "false"
         },
         {
-          "command": "erlab.dataArray.unpin",
+          "command": "erlab.xarray.unpin",
           "when": "false"
         },
         {
-          "command": "erlab.dataArray.toggleWatch",
+          "command": "erlab.xarray.toggleWatch",
           "when": "false"
         },
         {
-          "command": "erlab.dataArray.watch",
+          "command": "erlab.xarray.watch",
           "when": "false"
         },
         {
-          "command": "erlab.dataArray.unwatch",
+          "command": "erlab.xarray.unwatch",
           "when": "false"
         },
         {
-          "command": "erlab.dataArray.openInImageTool",
+          "command": "erlab.xarray.openInImageTool",
           "when": "false"
         },
         {
-          "command": "erlab.dataArray.goToDefinition",
+          "command": "erlab.xarray.goToDefinition",
           "when": "false"
         }
       ],
@@ -226,55 +227,55 @@
       ],
       "view/title": [
         {
-          "command": "erlab.dataArray.refresh",
-          "when": "view == erlabDataArrays",
+          "command": "erlab.xarray.refresh",
+          "when": "view == erlabXarrayObjects",
           "group": "navigation"
         }
       ],
       "view/item/context": [
         {
-          "command": "erlab.dataArray.openDetail",
-          "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem.*/",
+          "command": "erlab.xarray.openDetail",
+          "when": "view == erlabXarrayObjects && viewItem =~ /(dataArrayItem|datasetItem|datatreeItem).*/",
           "group": "navigation"
         },
         {
-          "command": "erlab.dataArray.openInImageTool",
-          "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem.*/",
+          "command": "erlab.xarray.openInImageTool",
+          "when": "view == erlabXarrayObjects && viewItem =~ /dataArrayItem.*/",
           "group": "inline"
         },
         {
-          "command": "erlab.dataArray.goToDefinition",
-          "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem.*/",
+          "command": "erlab.xarray.goToDefinition",
+          "when": "view == erlabXarrayObjects && viewItem =~ /(dataArrayItem|datasetItem|datatreeItem).*/",
           "group": "inline"
         },
         {
-          "command": "erlab.dataArray.pin",
-          "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem(Watched)?$/",
+          "command": "erlab.xarray.pin",
+          "when": "view == erlabXarrayObjects && viewItem =~ /(dataArrayItem(Watched)?|datasetItem|datatreeItem)$/",
           "group": "inline"
         },
         {
-          "command": "erlab.dataArray.unpin",
-          "when": "view == erlabDataArrays && viewItem =~ /dataArrayItemPinned.*/",
+          "command": "erlab.xarray.unpin",
+          "when": "view == erlabXarrayObjects && viewItem =~ /(dataArrayItem|datasetItem|datatreeItem)Pinned.*/",
           "group": "inline"
         },
         {
-          "command": "erlab.dataArray.watch",
-          "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem(Pinned)?$/",
+          "command": "erlab.xarray.watch",
+          "when": "view == erlabXarrayObjects && viewItem =~ /dataArrayItem(Pinned)?$/",
           "group": "inline"
         },
         {
-          "command": "erlab.dataArray.unwatch",
-          "when": "view == erlabDataArrays && viewItem =~ /dataArrayItem.*Watched.*/",
+          "command": "erlab.xarray.unwatch",
+          "when": "view == erlabXarrayObjects && viewItem =~ /dataArrayItem.*Watched.*/",
           "group": "inline"
         },
         {
-          "command": "erlab.dataArray.togglePin",
-          "when": "view == erlabDataArrays && viewItem =~ /dataArrayItemPinned.*/",
+          "command": "erlab.xarray.togglePin",
+          "when": "view == erlabXarrayObjects && viewItem =~ /(dataArrayItem|datasetItem|datatreeItem)Pinned.*/",
           "group": "navigation"
         },
         {
-          "command": "erlab.dataArray.toggleWatch",
-          "when": "view == erlabDataArrays && viewItem =~ /dataArrayItemWatched.*/",
+          "command": "erlab.xarray.toggleWatch",
+          "when": "view == erlabXarrayObjects && viewItem =~ /dataArrayItemWatched.*/",
           "group": "navigation"
         }
       ]
@@ -291,13 +292,13 @@
     "views": {
       "erlab": [
         {
-          "id": "erlabDataArrays",
-          "name": "DataArrays",
+          "id": "erlabXarrayObjects",
+          "name": "xarray Objects",
           "icon": "$(layers)"
         },
         {
-          "id": "erlabDataArrayDetail",
-          "name": "DataArray Detail",
+          "id": "erlabXarrayDetail",
+          "name": "xarray Detail",
           "type": "webview",
           "icon": "$(info)"
         }

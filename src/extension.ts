@@ -16,8 +16,8 @@ import { isValidPythonIdentifier } from './python/identifiers';
 // Commands
 import {
 	type MagicCommandArgs,
-	type DataArrayPanelCommandArgs,
-	normalizeDataArrayArgs,
+	type XarrayPanelCommandArgs,
+	normalizeXarrayArgs,
 } from './commands';
 import { buildMagicInvocation, buildItoolInvocation } from './commands/magicInvocation';
 
@@ -25,15 +25,15 @@ import { buildMagicInvocation, buildItoolInvocation } from './commands/magicInvo
 import {
 	DATA_ARRAY_CONTEXT,
 	DATA_ARRAY_WATCHED_CONTEXT,
-	refreshDataArrayCache,
-	isDataArrayInCache,
-	getCachedDataArrayEntry,
-	invalidateDataArrayCacheEntry,
-	PinnedDataArrayStore,
-	DataArrayPanelProvider,
-	DataArrayDetailViewProvider,
-} from './features/dataArray';
-import { registerDataArrayHoverProvider } from './features/hover';
+	refreshXarrayCache,
+	isXarrayInCache,
+	getCachedXarrayEntry,
+	invalidateXarrayCacheEntry,
+	PinnedXarrayStore,
+	XarrayPanelProvider,
+	XarrayDetailViewProvider,
+} from './features/xarray';
+import { registerXarrayHoverProvider } from './features/hover';
 
 /**
  * Get the variable name at the current selection.
@@ -110,7 +110,7 @@ export function activate(context: vscode.ExtensionContext) {
 			const output = await executeInKernel(notebookUri, code);
 			showMagicOutput(output);
 			if (notebookUri) {
-				invalidateDataArrayCacheEntry(notebookUri, variableName);
+				invalidateXarrayCacheEntry(notebookUri, variableName);
 			}
 			if (onDidExecute) {
 				await onDidExecute(variableName, editor.document);
@@ -124,29 +124,29 @@ export function activate(context: vscode.ExtensionContext) {
 	// ─────────────────────────────────────────────────────────────────────────
 	// Core services
 	// ─────────────────────────────────────────────────────────────────────────
-	const pinnedStore = new PinnedDataArrayStore(context.globalState);
-	const dataArrayPanelProvider = new DataArrayPanelProvider(pinnedStore);
-	const dataArrayTreeView = vscode.window.createTreeView('erlabDataArrays', {
-		treeDataProvider: dataArrayPanelProvider,
+	const pinnedStore = new PinnedXarrayStore(context.globalState);
+	const xarrayPanelProvider = new XarrayPanelProvider(pinnedStore);
+	const xarrayTreeView = vscode.window.createTreeView('erlabXarrayObjects', {
+		treeDataProvider: xarrayPanelProvider,
 		showCollapseAll: false,
 	});
-	dataArrayPanelProvider.setTreeView(dataArrayTreeView);
-	const dataArrayDetailProvider = new DataArrayDetailViewProvider();
-	const dataArrayDetailDisposable = vscode.window.registerWebviewViewProvider(
-		'erlabDataArrayDetail',
-		dataArrayDetailProvider
+	xarrayPanelProvider.setTreeView(xarrayTreeView);
+	const xarrayDetailProvider = new XarrayDetailViewProvider();
+	const xarrayDetailDisposable = vscode.window.registerWebviewViewProvider(
+		'erlabXarrayDetail',
+		xarrayDetailProvider
 	);
-	const requestDataArrayRefresh = (): void => {
-		dataArrayPanelProvider.requestRefresh();
+	const requestXarrayRefresh = (): void => {
+		xarrayPanelProvider.requestRefresh();
 	};
-	const dataArrayVisibilityDisposable = dataArrayTreeView.onDidChangeVisibility(() => {
-		requestDataArrayRefresh();
+	const xarrayVisibilityDisposable = xarrayTreeView.onDidChangeVisibility(() => {
+		requestXarrayRefresh();
 	});
 
 	// Populate cache on initial activation if there's an active notebook
 	const activeNotebook = getActiveNotebookUri();
 	if (activeNotebook) {
-		void refreshDataArrayCache(activeNotebook);
+		void refreshXarrayCache(activeNotebook);
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────
@@ -157,7 +157,7 @@ export function activate(context: vscode.ExtensionContext) {
 		'watch',
 		(variableName) => variableName,
 		undefined,
-		() => requestDataArrayRefresh()
+		() => requestXarrayRefresh()
 	);
 
 	const itoolDisposable = registerMagicCommand(
@@ -168,7 +168,7 @@ export function activate(context: vscode.ExtensionContext) {
 			const useManager = vscode.workspace.getConfiguration('erlab').get<boolean>('itool.useManager', true);
 			return buildItoolInvocation(variableName, useManager);
 		},
-		() => requestDataArrayRefresh()
+		() => requestXarrayRefresh()
 	);
 
 	const unwatchDisposable = registerMagicCommand(
@@ -176,7 +176,7 @@ export function activate(context: vscode.ExtensionContext) {
 		'watch',
 		(variableName) => `-d ${variableName}`,
 		undefined,
-		() => requestDataArrayRefresh()
+		() => requestXarrayRefresh()
 	);
 
 	// Additional tool magic commands
@@ -218,7 +218,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 	// Quick Pick command for other tools
 	const otherToolsDisposable = vscode.commands.registerCommand(
-		'erlab.dataArray.otherTools',
+		'erlab.xarray.otherTools',
 		async (args?: MagicCommandArgs) => {
 			const tools = [
 				{ label: '$(open-in-product) ktool', description: 'momentum conversion', command: 'erlab.ktool' },
@@ -240,7 +240,7 @@ export function activate(context: vscode.ExtensionContext) {
 	// ─────────────────────────────────────────────────────────────────────────
 	// Hover provider
 	// ─────────────────────────────────────────────────────────────────────────
-	const hoverDisposable = registerDataArrayHoverProvider(pinnedStore);
+	const hoverDisposable = registerXarrayHoverProvider(pinnedStore);
 
 	// ─────────────────────────────────────────────────────────────────────────
 	// Selection and context tracking
@@ -278,7 +278,7 @@ export function activate(context: vscode.ExtensionContext) {
 			await vscode.commands.executeCommand('setContext', DATA_ARRAY_WATCHED_CONTEXT, false);
 			return;
 		}
-		const entry = getCachedDataArrayEntry(notebookUri, selectedVariable);
+		const entry = getCachedXarrayEntry(notebookUri, selectedVariable);
 		const isDataArray = Boolean(entry);
 		await vscode.commands.executeCommand('setContext', DATA_ARRAY_CONTEXT, isDataArray);
 		await vscode.commands.executeCommand('setContext', DATA_ARRAY_WATCHED_CONTEXT, Boolean(entry?.watched));
@@ -288,18 +288,18 @@ export function activate(context: vscode.ExtensionContext) {
 		if (!editor || !isNotebookCellDocument(editor.document)) {
 			await vscode.commands.executeCommand('setContext', DATA_ARRAY_CONTEXT, false);
 			await vscode.commands.executeCommand('setContext', DATA_ARRAY_WATCHED_CONTEXT, false);
-			requestDataArrayRefresh();
+			requestXarrayRefresh();
 			return;
 		}
-		requestDataArrayRefresh();
+		requestXarrayRefresh();
 	});
 
 	const activeNotebookDisposable = vscode.window.onDidChangeActiveNotebookEditor(async (editor) => {
 		// Refresh cache when switching notebooks (debounced)
 		if (editor) {
-			await refreshDataArrayCache(editor.notebook.uri);
+			await refreshXarrayCache(editor.notebook.uri);
 		}
-		requestDataArrayRefresh();
+		requestXarrayRefresh();
 	});
 
 	// ─────────────────────────────────────────────────────────────────────────
@@ -316,18 +316,18 @@ export function activate(context: vscode.ExtensionContext) {
 		const hasExecutionSummary = event.cellChanges.some((change) => change.executionSummary);
 		const hasOutputsChange = event.cellChanges.some((change) => change.outputs);
 		if (hasOutputsChange && !hasExecutionSummary) {
-			dataArrayPanelProvider.setExecutionInProgress(true);
-			dataArrayDetailProvider.setExecutionInProgress(true);
+			xarrayPanelProvider.setExecutionInProgress(true);
+			xarrayDetailProvider.setExecutionInProgress(true);
 			return;
 		}
 		if (hasExecutionSummary) {
-			dataArrayPanelProvider.setExecutionInProgress(false);
-			dataArrayDetailProvider.setExecutionInProgress(false);
+			xarrayPanelProvider.setExecutionInProgress(false);
+			xarrayDetailProvider.setExecutionInProgress(false);
 			// Refresh cache when cell execution completes (debounced + coalesced)
-			await refreshDataArrayCache(activeNotebook);
-			// Note: requestDataArrayRefresh is called after cache refresh completes
+			await refreshXarrayCache(activeNotebook);
+			// Note: requestXarrayRefresh is called after cache refresh completes
 			// to update tree view with new data
-			requestDataArrayRefresh();
+			requestXarrayRefresh();
 		}
 	});
 
@@ -355,7 +355,7 @@ export function activate(context: vscode.ExtensionContext) {
 				if (!notebookUri) {
 					return [];
 				}
-				const entry = getCachedDataArrayEntry(notebookUri, variableName);
+				const entry = getCachedXarrayEntry(notebookUri, variableName);
 				if (token.isCancellationRequested || !entry) {
 					return [];
 				}
@@ -381,14 +381,14 @@ export function activate(context: vscode.ExtensionContext) {
 	// DataArray panel commands
 	// ─────────────────────────────────────────────────────────────────────────
 	const refreshDataArrayPanelDisposable = vscode.commands.registerCommand(
-		'erlab.dataArray.refresh',
-		() => requestDataArrayRefresh()
+		'erlab.xarray.refresh',
+		() => requestXarrayRefresh()
 	);
 
 	const openDataArrayDetailDisposable = vscode.commands.registerCommand(
-		'erlab.dataArray.openDetail',
-		async (args?: DataArrayPanelCommandArgs) => {
-			const normalized = normalizeDataArrayArgs(args);
+		'erlab.xarray.openDetail',
+		async (args?: XarrayPanelCommandArgs) => {
+			const normalized = normalizeXarrayArgs(args);
 			const variableName = normalized?.variableName;
 			if (!variableName) {
 				return;
@@ -398,14 +398,14 @@ export function activate(context: vscode.ExtensionContext) {
 				vscode.window.showInformationMessage('erlab: open a notebook to view DataArrays.');
 				return;
 			}
-			await dataArrayDetailProvider.showDetail(notebookUri, variableName);
+			await xarrayDetailProvider.showDetail(notebookUri, variableName, normalized?.type);
 		}
 	);
 
 	const togglePinDisposable = vscode.commands.registerCommand(
-		'erlab.dataArray.togglePin',
-		async (args?: DataArrayPanelCommandArgs) => {
-			const normalized = normalizeDataArrayArgs(args);
+		'erlab.xarray.togglePin',
+		async (args?: XarrayPanelCommandArgs) => {
+			const normalized = normalizeXarrayArgs(args);
 			const variableName = normalized?.variableName;
 			if (!variableName) {
 				return;
@@ -422,18 +422,18 @@ export function activate(context: vscode.ExtensionContext) {
 			} else {
 				await pinnedStore.pin(notebookUri, variableName);
 			}
-			requestDataArrayRefresh();
+			requestXarrayRefresh();
 			if (!isPinned && normalized?.reveal) {
 				await vscode.commands.executeCommand('workbench.view.extension.erlab');
-				await dataArrayPanelProvider.reveal(variableName);
+				await xarrayPanelProvider.reveal(variableName);
 			}
 		}
 	);
 
 	const pinDisposable = vscode.commands.registerCommand(
-		'erlab.dataArray.pin',
-		async (args?: DataArrayPanelCommandArgs) => {
-			const normalized = normalizeDataArrayArgs(args);
+		'erlab.xarray.pin',
+		async (args?: XarrayPanelCommandArgs) => {
+			const normalized = normalizeXarrayArgs(args);
 			const variableName = normalized?.variableName;
 			if (!variableName) {
 				return;
@@ -445,15 +445,15 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 			if (!pinnedStore.isPinned(notebookUri, variableName)) {
 				await pinnedStore.pin(notebookUri, variableName);
-				requestDataArrayRefresh();
+				requestXarrayRefresh();
 			}
 		}
 	);
 
 	const unpinDisposable = vscode.commands.registerCommand(
-		'erlab.dataArray.unpin',
-		async (args?: DataArrayPanelCommandArgs) => {
-			const normalized = normalizeDataArrayArgs(args);
+		'erlab.xarray.unpin',
+		async (args?: XarrayPanelCommandArgs) => {
+			const normalized = normalizeXarrayArgs(args);
 			const variableName = normalized?.variableName;
 			if (!variableName) {
 				return;
@@ -465,15 +465,15 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 			if (pinnedStore.isPinned(notebookUri, variableName)) {
 				await pinnedStore.unpin(notebookUri, variableName);
-				requestDataArrayRefresh();
+				requestXarrayRefresh();
 			}
 		}
 	);
 
 	const toggleWatchDisposable = vscode.commands.registerCommand(
-		'erlab.dataArray.toggleWatch',
-		async (args?: DataArrayPanelCommandArgs) => {
-			const normalized = normalizeDataArrayArgs(args);
+		'erlab.xarray.toggleWatch',
+		async (args?: XarrayPanelCommandArgs) => {
+			const normalized = normalizeXarrayArgs(args);
 			const variableName = normalized?.variableName;
 			if (!variableName) {
 				return;
@@ -485,40 +485,40 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 			const watched = Boolean(normalized?.watched);
 			await vscode.commands.executeCommand(watched ? 'erlab.unwatch' : 'erlab.watch', { variableName });
-			requestDataArrayRefresh();
+			requestXarrayRefresh();
 		}
 	);
 
 	const dataArrayWatchDisposable = vscode.commands.registerCommand(
-		'erlab.dataArray.watch',
-		async (args?: DataArrayPanelCommandArgs) => {
-			const normalized = normalizeDataArrayArgs(args);
+		'erlab.xarray.watch',
+		async (args?: XarrayPanelCommandArgs) => {
+			const normalized = normalizeXarrayArgs(args);
 			const variableName = normalized?.variableName;
 			if (!variableName) {
 				return;
 			}
 			await vscode.commands.executeCommand('erlab.watch', { variableName });
-			requestDataArrayRefresh();
+			requestXarrayRefresh();
 		}
 	);
 
 	const dataArrayUnwatchDisposable = vscode.commands.registerCommand(
-		'erlab.dataArray.unwatch',
-		async (args?: DataArrayPanelCommandArgs) => {
-			const normalized = normalizeDataArrayArgs(args);
+		'erlab.xarray.unwatch',
+		async (args?: XarrayPanelCommandArgs) => {
+			const normalized = normalizeXarrayArgs(args);
 			const variableName = normalized?.variableName;
 			if (!variableName) {
 				return;
 			}
 			await vscode.commands.executeCommand('erlab.unwatch', { variableName });
-			requestDataArrayRefresh();
+			requestXarrayRefresh();
 		}
 	);
 
 	const openInImageToolDisposable = vscode.commands.registerCommand(
-		'erlab.dataArray.openInImageTool',
-		async (args?: DataArrayPanelCommandArgs) => {
-			const normalized = normalizeDataArrayArgs(args);
+		'erlab.xarray.openInImageTool',
+		async (args?: XarrayPanelCommandArgs) => {
+			const normalized = normalizeXarrayArgs(args);
 			const variableName = normalized?.variableName;
 			if (!variableName) {
 				return;
@@ -532,9 +532,9 @@ export function activate(context: vscode.ExtensionContext) {
 	);
 
 	const goToDefinitionDisposable = vscode.commands.registerCommand(
-		'erlab.dataArray.goToDefinition',
-		async (args?: DataArrayPanelCommandArgs) => {
-			const normalized = normalizeDataArrayArgs(args);
+		'erlab.xarray.goToDefinition',
+		async (args?: XarrayPanelCommandArgs) => {
+			const normalized = normalizeXarrayArgs(args);
 			const variableName = normalized?.variableName;
 			if (!variableName) {
 				return;
@@ -603,9 +603,9 @@ export function activate(context: vscode.ExtensionContext) {
 		openInImageToolDisposable,
 		goToDefinitionDisposable,
 		showOutputDisposable,
-		dataArrayTreeView,
-		dataArrayDetailDisposable,
-		dataArrayVisibilityDisposable
+		xarrayTreeView,
+		xarrayDetailDisposable,
+		xarrayVisibilityDisposable
 	);
 }
 

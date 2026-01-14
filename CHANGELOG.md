@@ -4,10 +4,18 @@ All notable changes to the extension will be documented in this file.
 
 ## [Unreleased]
 
+- **Breaking**: Rename command namespace from `erlab.dataArray.*` to `erlab.xarray.*`
+  and settings from `erlab.dataArray.*` to `erlab.xarray.*`.
+- Add support for `xr.Dataset` and `xr.DataTree` in the xarray Objects panel, hover
+  provider, and detail view.
+- Rename "DataArrays" panel to "xarray Objects" and "DataArray Detail" to "xarray
+  Detail".
+- Dataset and DataTree objects can be pinned and inspected, but Watch and ImageTool
+  features remain DataArray-only.
 - Add "More..." button to DataArray hover menu with quick access to additional tools:
   `ktool`, `dtool`, `restool`, `meshtool`, `ftool`, and `goldtool`.
-- Show persistent icons in the DataArray tree view: an eye icon for watched items and
-  an array icon for unwatched items.
+- Show persistent icons in the xarray tree view: an eye icon for watched DataArrays and
+  type-specific icons for DataArray, Dataset, and DataTree.
 
 ## [v0.2.1] - 2026-01-13
 

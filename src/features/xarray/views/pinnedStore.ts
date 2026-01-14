@@ -1,11 +1,11 @@
 /**
- * Pinned DataArray store for persisting pinned state.
+ * Pinned xarray store for persisting pinned state.
  */
 import * as vscode from 'vscode';
 
-const PINNED_DATAARRAYS_KEY = 'erlab.pinnedDataArrays';
+const PINNED_XARRAY_KEY = 'erlab.pinnedXarray';
 
-export class PinnedDataArrayStore {
+export class PinnedXarrayStore {
 	private readonly state: vscode.Memento;
 
 	constructor(state: vscode.Memento) {
@@ -17,7 +17,7 @@ export class PinnedDataArrayStore {
 	}
 
 	getPinned(notebookUri: vscode.Uri): string[] {
-		const allPinned = this.state.get<Record<string, string[]>>(PINNED_DATAARRAYS_KEY, {});
+		const allPinned = this.state.get<Record<string, string[]>>(PINNED_XARRAY_KEY, {});
 		return allPinned[notebookUri.toString()] ?? [];
 	}
 
@@ -35,8 +35,13 @@ export class PinnedDataArrayStore {
 	}
 
 	async setPinned(notebookUri: vscode.Uri, pinned: string[]): Promise<void> {
-		const allPinned = this.state.get<Record<string, string[]>>(PINNED_DATAARRAYS_KEY, {});
+		const allPinned = this.state.get<Record<string, string[]>>(PINNED_XARRAY_KEY, {});
 		const next = { ...allPinned, [notebookUri.toString()]: pinned };
-		await this.state.update(PINNED_DATAARRAYS_KEY, next);
+		await this.state.update(PINNED_XARRAY_KEY, next);
 	}
 }
+
+/**
+ * @deprecated Use PinnedXarrayStore instead
+ */
+export const PinnedDataArrayStore = PinnedXarrayStore;

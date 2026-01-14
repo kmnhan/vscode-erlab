@@ -1,19 +1,19 @@
 /**
- * DataArray hover provider for showing DataArray info on hover in notebook cells.
+ * xarray hover provider for showing xarray object info on hover in notebook cells.
  */
 import * as vscode from 'vscode';
 import { isNotebookCellDocument, getNotebookUriForDocument } from '../../notebook';
 import { isValidPythonIdentifier } from '../../python/identifiers';
 import { encodeCommandArgs } from '../../commands';
-import { getCachedDataArrayEntry } from '../dataArray/service';
-import { formatDataArrayLabel } from '../dataArray/formatting';
-import type { PinnedDataArrayStore } from '../dataArray/views/pinnedStore';
+import { getCachedXarrayEntry } from '../xarray/service';
+import { formatXarrayLabel } from '../xarray/formatting';
+import type { PinnedXarrayStore } from '../xarray/views/pinnedStore';
 
 /**
- * Register the DataArray hover provider.
+ * Register the xarray hover provider.
  */
-export function registerDataArrayHoverProvider(
-	pinnedStore: PinnedDataArrayStore
+export function registerXarrayHoverProvider(
+	pinnedStore: PinnedXarrayStore
 ): vscode.Disposable {
 	return vscode.languages.registerHoverProvider({ language: 'python' }, {
 		provideHover: (document: vscode.TextDocument, position: vscode.Position): vscode.Hover | undefined => {
@@ -36,37 +36,49 @@ export function registerDataArrayHoverProvider(
 			if (!notebookUri) {
 				return;
 			}
-			const info = getCachedDataArrayEntry(notebookUri, variableName);
+			const info = getCachedXarrayEntry(notebookUri, variableName);
 			if (!info) {
 				return;
 			}
 
 			const md = new vscode.MarkdownString();
 			md.supportThemeIcons = true;
-			const label = formatDataArrayLabel(info, variableName);
-			md.appendMarkdown(`${label}\n\n`);
+			const label = formatXarrayLabel(info, variableName);
+			md.appendMarkdown(`**${info.type}**: ${label}\n\n`);
+
 			const isPinned = pinnedStore.isPinned(notebookUri, variableName);
 			const hoverArgs = encodeCommandArgs({
 				variableName,
 				ndim: info.ndim,
 				notebookUri: notebookUri?.toString(),
+				type: info.type,
 			});
-			if (info.watched) {
-				md.appendMarkdown(
-					`[$(list-flat) Details](command:erlab.dataArray.openDetail?${hoverArgs}) | ` +
-					`[$(eye) Show](command:erlab.watch?${encodeCommandArgs({ variableName })}) | ` +
-					`[$(eye-closed) Unwatch](command:erlab.unwatch?${encodeCommandArgs({ variableName })}) | ` +
-					`[$(empty-window) ImageTool](command:erlab.dataArray.openInImageTool?${hoverArgs}) | ` +
-					`[$(pin) ${isPinned ? 'Unpin' : 'Pin'}](command:erlab.dataArray.togglePin?${encodeCommandArgs({ variableName, reveal: !isPinned })}) | ` +
-					`[$(ellipsis) More...](command:erlab.dataArray.otherTools?${encodeCommandArgs({ variableName })})\n`
-				);
+
+			// DataArray: show all actions including watch and ImageTool
+			if (info.type === 'DataArray') {
+				if (info.watched) {
+					md.appendMarkdown(
+						`[$(list-flat) Details](command:erlab.xarray.openDetail?${hoverArgs}) | ` +
+						`[$(eye) Show](command:erlab.watch?${encodeCommandArgs({ variableName })}) | ` +
+						`[$(eye-closed) Unwatch](command:erlab.unwatch?${encodeCommandArgs({ variableName })}) | ` +
+						`[$(empty-window) ImageTool](command:erlab.xarray.openInImageTool?${hoverArgs}) | ` +
+						`[$(pin) ${isPinned ? 'Unpin' : 'Pin'}](command:erlab.xarray.togglePin?${encodeCommandArgs({ variableName, reveal: !isPinned })}) | ` +
+						`[$(ellipsis) More...](command:erlab.xarray.otherTools?${encodeCommandArgs({ variableName })})\n`
+					);
+				} else {
+					md.appendMarkdown(
+						`[$(list-flat) Details](command:erlab.xarray.openDetail?${hoverArgs}) | ` +
+						`[$(eye) Watch](command:erlab.watch?${encodeCommandArgs({ variableName })}) | ` +
+						`[$(empty-window) ImageTool](command:erlab.xarray.openInImageTool?${hoverArgs}) | ` +
+						`[$(pin) ${isPinned ? 'Unpin' : 'Pin'}](command:erlab.xarray.togglePin?${encodeCommandArgs({ variableName, reveal: !isPinned })}) | ` +
+						`[$(ellipsis) More...](command:erlab.xarray.otherTools?${encodeCommandArgs({ variableName })})\n`
+					);
+				}
 			} else {
+				// Dataset and DataTree: only show Details and Pin
 				md.appendMarkdown(
-					`[$(list-flat) Details](command:erlab.dataArray.openDetail?${hoverArgs}) | ` +
-					`[$(eye) Watch](command:erlab.watch?${encodeCommandArgs({ variableName })}) | ` +
-					`[$(empty-window) ImageTool](command:erlab.dataArray.openInImageTool?${hoverArgs}) | ` +
-					`[$(pin) ${isPinned ? 'Unpin' : 'Pin'}](command:erlab.dataArray.togglePin?${encodeCommandArgs({ variableName, reveal: !isPinned })}) | ` +
-					`[$(ellipsis) More...](command:erlab.dataArray.otherTools?${encodeCommandArgs({ variableName })})\n`
+					`[$(list-flat) Details](command:erlab.xarray.openDetail?${hoverArgs}) | ` +
+					`[$(pin) ${isPinned ? 'Unpin' : 'Pin'}](command:erlab.xarray.togglePin?${encodeCommandArgs({ variableName, reveal: !isPinned })})\n\n`
 				);
 			}
 			md.isTrusted = true;
@@ -75,3 +87,8 @@ export function registerDataArrayHoverProvider(
 		}
 	});
 }
+
+/**
+ * @deprecated Use registerXarrayHoverProvider instead
+ */
+export const registerDataArrayHoverProvider = registerXarrayHoverProvider;
