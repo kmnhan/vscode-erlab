@@ -2,7 +2,7 @@
 
 All notable changes to the extension will be documented in this file.
 
-## [Unreleased]
+## [v0.3.1] - 2026-01-14
 
 - Fix xarray objects disappearing after watch/unwatch or ImageTool actions, and make
   refresh re-query the kernel to restore list state.
