@@ -2,7 +2,7 @@
 
 All notable changes to the extension will be documented in this file.
 
-## [Unreleased]
+## [v0.3.0] - 2026-01-14
 
 - **Breaking**: Rename command namespace from `erlab.dataArray.*` to `erlab.xarray.*`
   and settings from `erlab.dataArray.*` to `erlab.xarray.*`.

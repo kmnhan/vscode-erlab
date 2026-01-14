@@ -1,7 +1,7 @@
 {
   "name": "erlab",
   "displayName": "erlab",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "publisher": "khan",
   "description": "Extension for working with xarray objects and the ERLab Python package in Jupyter Notebooks",
   "author": {
@@ -92,7 +92,7 @@
         "when": "view == erlabXarrayObjects && viewItem =~ /(dataArrayItem|datasetItem|datatreeItem).*/"
       },
       {
-"command": "erlab.xarray.togglePin",
+        "command": "erlab.xarray.togglePin",
         "title": "erlab: Toggle Pin",
         "icon": "$(pin)",
         "when": "view == erlabXarrayObjects && viewItem =~ /(dataArrayItem|datasetItem|datatreeItem)Pinned.*/"
