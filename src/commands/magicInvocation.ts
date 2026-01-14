@@ -9,7 +9,7 @@ const ERLAB_TMP_PREFIX = '__erlab_tmp__';
  */
 export function buildMagicInvocation(magicName: string, args: string): string {
 	return buildMagicInvocationWithArgsCode(magicName, [
-		`_args = ${JSON.stringify(args)}`,
+		`${ERLAB_TMP_PREFIX}args = ${JSON.stringify(args)}`,
 	]);
 }
 
@@ -25,7 +25,7 @@ export function buildMagicInvocationWithArgsCode(magicName: string, argsLines: s
 		`    if ${ERLAB_TMP_PREFIX}ip and "erlab.interactive" not in ${ERLAB_TMP_PREFIX}ip.extension_manager.loaded:`,
 		`        ${ERLAB_TMP_PREFIX}ip.run_line_magic("load_ext", "erlab.interactive")`,
 		`    if ${ERLAB_TMP_PREFIX}ip:`,
-		...argsLines.map((line) => `        ${line.replace(/^_/, `${ERLAB_TMP_PREFIX}`)}`),
+		...argsLines.map((line) => `        ${line}`),
 		`        ${ERLAB_TMP_PREFIX}ip.run_line_magic(${JSON.stringify(magicName)}, ${ERLAB_TMP_PREFIX}args)`,
 		`    try:`,
 		`        del ${ERLAB_TMP_PREFIX}ip`,
