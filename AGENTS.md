@@ -46,6 +46,8 @@ src/
     └── unit/             # Pure unit tests (no VS Code)
 ```
 
+If you change the layout or add new files, update this Project Structure section.
+
 ## Key Commands
 
 ```bash
@@ -111,8 +113,7 @@ npm run test:e2e          # Creates temp venv each time (slow)
 ## CI/CD
 
 - **CI workflow** (`.github/workflows/ci.yaml`): Runs on push/PR, uses uv for cached Python deps
-- **Release workflow** (`.github/workflows/release.yaml`): Publishes to VS Code Marketplace
-- **Pre-commit** (`.pre-commit-config.yaml`): ESLint checks
+- **Release workflow** (`.github/workflows/release.yaml`): Publishes to VS Code Marketplace, Open VSX, and GitHub Releases on new tag
 
 ## Extension Dependencies
 
@@ -126,7 +127,7 @@ This extension requires `ms-toolsai.jupyter` (Jupyter extension) to be installed
 - Use `vscode.commands.registerCommand` for command registration
 - Kernel communication goes through `KernelClient` class
 - Python code snippets are defined in `pythonSnippets.ts`
-- Add a `CHANGELOG.md` entry only when changes alter extension behavior or introduce a new feature
+- Add a `CHANGELOG.md` entry only when changes alter extension behavior or introduce a new feature; if `CHANGELOG.md` lacks a `## [Unreleased]` section, add it and write the entry there
 - Update `README.md` when adding or modifying user-facing features, commands, or actions
 - When adding new commands, always add them to both `package.json` AND the Commands section in `README.md`
 
