@@ -106,7 +106,7 @@ export function activate(context: vscode.ExtensionContext) {
 			const code = buildMagicCode
 				? buildMagicCode(variableName)
 				: buildMagicInvocation(magicName, buildArgs(variableName));
-			const output = await executeInKernel(notebookUri, code);
+			const output = await executeInKernel(notebookUri, code, { operation: `magic:${magicName}` });
 			showMagicOutput(output);
 			if (onDidExecute) {
 				await onDidExecute(variableName, editor.document);
@@ -335,10 +335,7 @@ export function activate(context: vscode.ExtensionContext) {
 			xarrayPanelProvider.setExecutionInProgress(false);
 			xarrayDetailProvider.setExecutionInProgress(false);
 			// Refresh cache when cell execution completes (debounced + coalesced)
-			await refreshXarrayCache(activeNotebook);
-			// Note: requestXarrayRefresh is called after cache refresh completes
-			// to update tree view with new data
-			void requestXarrayRefresh();
+			void refreshXarrayCache(activeNotebook).then(() => requestXarrayRefresh());
 		}
 	});
 

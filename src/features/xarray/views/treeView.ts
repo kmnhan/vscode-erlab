@@ -30,14 +30,13 @@ export class XarrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeI
 	}
 
 	requestRefresh(): void {
-		logger.debug('Tree view refresh requested');
 		if (this.executionInProgress) {
 			this.refreshPending = true;
 			if (this.refreshTimer) {
 				clearTimeout(this.refreshTimer);
 				this.refreshTimer = undefined;
 			}
-			logger.trace('Refresh deferred: execution in progress');
+			logger.trace('Tree view refresh deferred: execution in progress');
 			return;
 		}
 		if (!this.treeView || !this.treeView.visible) {
@@ -46,6 +45,7 @@ export class XarrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeI
 				clearTimeout(this.refreshTimer);
 				this.refreshTimer = undefined;
 			}
+			logger.trace('Tree view refresh deferred: view not visible');
 			return;
 		}
 		this.refreshPending = false;
@@ -56,6 +56,7 @@ export class XarrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeI
 			this.refreshTimer = undefined;
 			this.onDidChangeTreeDataEmitter.fire(undefined);
 		}, 250);
+		logger.trace('Tree view refresh scheduled');
 	}
 
 	setExecutionInProgress(active: boolean): void {

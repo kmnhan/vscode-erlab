@@ -104,7 +104,9 @@ async function doRefreshXarrayCache(
 	logger.info(`Refreshing xarray cache for ${notebookUri.fsPath}`);
 
 	try {
-		const output = await executeInKernelForOutput(notebookUri, buildXarrayQueryCode());
+		const output = await executeInKernelForOutput(notebookUri, buildXarrayQueryCode(), {
+			operation: 'xarray-query',
+		});
 		const { entries, error } = parseXarrayResponse(output);
 
 		if (error) {
@@ -125,7 +127,9 @@ async function doRefreshXarrayCache(
 		return { entries };
 	} catch (err) {
 		xarrayCache.delete(cacheKey);
-		const message = 'Failed to query the kernel. Ensure the Jupyter kernel is running.';
+		const message = err instanceof Error && err.message
+			? err.message
+			: 'Failed to query the kernel. Ensure the Jupyter kernel is running.';
 		logger.error(`xarray cache refresh error: ${err instanceof Error ? err.message : String(err)}`);
 		return { entries: [], error: message };
 	} finally {

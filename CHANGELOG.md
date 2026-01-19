@@ -2,6 +2,11 @@
 
 All notable changes to the extension will be documented in this file.
 
+## [Unreleased]
+
+- Add timeouts for kernel output queries with best-effort kernel interrupts and warn on
+  slow kernel executions in logs.
+
 ## [v0.3.1] - 2026-01-14
 
 - Fix xarray objects disappearing after watch/unwatch or ImageTool actions, and make

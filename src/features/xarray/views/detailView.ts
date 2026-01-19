@@ -129,7 +129,11 @@ export class XarrayDetailViewProvider implements vscode.WebviewViewProvider {
 				displayExpandCoords: config.get<boolean>('xarray.displayExpandCoords', true),
 				displayExpandData: config.get<boolean>('xarray.displayExpandData', false),
 			};
-			const output = await executeInKernelForOutput(notebookUri, buildXarrayHtmlCode(variableName, displayOptions));
+			const output = await executeInKernelForOutput(
+				notebookUri,
+				buildXarrayHtmlCode(variableName, displayOptions),
+				{ operation: 'xarray-html' }
+			);
 			const line = extractLastJsonLine(output);
 			if (!line) {
 				this.lastHtml = buildXarrayHtml(buildXarrayMessage('No HTML representation returned.'), cspSource);

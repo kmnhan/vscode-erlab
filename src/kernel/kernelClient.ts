@@ -2,12 +2,129 @@
  * Kernel execution utilities for interacting with Jupyter kernels.
  */
 import * as vscode from 'vscode';
-import type { JupyterApi } from './types';
+import type { JupyterApi, KernelLike } from './types';
 import { logger } from '../logger';
 import {
 	decodeKernelOutputItem,
 	normalizeKernelError,
 } from './outputParsing';
+
+const DEFAULT_KERNEL_TIMEOUT_MS = 10000;
+const DEFAULT_KERNEL_WARN_MS = 2000;
+const DEFAULT_KERNEL_QUEUE_WARN_MS = 2000;
+
+export type KernelExecutionOptions = {
+	timeoutMs?: number;
+	warnAfterMs?: number;
+	operation?: string;
+	interruptOnTimeout?: boolean;
+};
+
+function formatOperationLabel(operation?: string): string {
+	return operation ? ` (${operation})` : '';
+}
+
+function createKernelExecutionTimeout(
+	options: KernelExecutionOptions | undefined,
+	label: string,
+	onTimeout: () => void
+): {
+	timeoutPromise?: Promise<never>;
+	getElapsedMs: () => number;
+	onOutput: () => void;
+	dispose: () => void;
+	didTimeout: () => boolean;
+	warnAfterMs: number;
+} {
+	const timeoutMs = options?.timeoutMs ?? DEFAULT_KERNEL_TIMEOUT_MS;
+	const warnAfterMs = options?.warnAfterMs ?? DEFAULT_KERNEL_WARN_MS;
+	let startTime: number | undefined;
+	let timeoutHandle: NodeJS.Timeout | undefined;
+	let queueWarnHandle: NodeJS.Timeout | undefined;
+	let didTimeoutFlag = false;
+	let rejectRef: ((reason?: Error) => void) | undefined;
+
+	const stopTimer = () => {
+		if (timeoutHandle) {
+			clearTimeout(timeoutHandle);
+			timeoutHandle = undefined;
+		}
+	};
+
+	const triggerTimeout = (reject: (reason?: Error) => void) => {
+		didTimeoutFlag = true;
+		stopTimer();
+		logger.warn(`Kernel execution timed out${label} after ${timeoutMs}ms.`);
+		onTimeout();
+		reject(new Error(`Kernel execution timed out after ${timeoutMs}ms.`));
+	};
+
+	const startTimer = () => {
+		const reject = rejectRef;
+		if (!reject || timeoutMs <= 0 || startTime !== undefined) {
+			return;
+		}
+		startTime = Date.now();
+		timeoutHandle = setTimeout(() => triggerTimeout(reject), timeoutMs);
+	};
+
+	const timeoutPromise = timeoutMs > 0
+		? new Promise<never>((_resolve, reject) => {
+			rejectRef = reject;
+			queueWarnHandle = setTimeout(() => {
+				logger.warn(`Kernel output delayed${label}.`);
+			}, DEFAULT_KERNEL_QUEUE_WARN_MS);
+		})
+		: undefined;
+
+	const getElapsedMs = () => {
+		return startTime ? Date.now() - startTime : 0;
+	};
+
+	const onOutput = () => {
+		if (queueWarnHandle) {
+			clearTimeout(queueWarnHandle);
+			queueWarnHandle = undefined;
+		}
+		startTimer();
+	};
+
+	const dispose = () => {
+		stopTimer();
+		if (queueWarnHandle) {
+			clearTimeout(queueWarnHandle);
+			queueWarnHandle = undefined;
+		}
+	};
+
+	return {
+		timeoutPromise,
+		getElapsedMs,
+		onOutput,
+		dispose,
+		didTimeout: () => didTimeoutFlag,
+		warnAfterMs,
+	};
+}
+
+async function tryInterruptKernel(
+	_kernel: KernelLike,
+	notebookUri: vscode.Uri,
+	operation?: string
+): Promise<void> {
+	const label = formatOperationLabel(operation);
+	try {
+		const commands = await vscode.commands.getCommands(true);
+		if (!commands.includes('jupyter.interruptkernel')) {
+			logger.warn(`Kernel interrupt command not available${label}.`);
+			return;
+		}
+		await vscode.commands.executeCommand('jupyter.interruptkernel', notebookUri);
+		logger.warn(`Interrupted kernel via command${label}`);
+	} catch (error) {
+		logger.warn(`Kernel command interrupt failed${label}: ${error instanceof Error ? error.message : String(error)}`);
+	}
+}
 
 /**
  * Get the Jupyter API from the ms-toolsai.jupyter extension.
@@ -25,7 +142,11 @@ async function getJupyterApi(): Promise<JupyterApi | undefined> {
  * Execute code in the Jupyter kernel (with user-facing messages on errors).
  * Returns stdout output as a string.
  */
-export async function executeInKernel(notebookUri: vscode.Uri | undefined, code: string): Promise<string> {
+export async function executeInKernel(
+	notebookUri: vscode.Uri | undefined,
+	code: string,
+	options?: KernelExecutionOptions
+): Promise<string> {
 	if (!notebookUri) {
 		vscode.window.showInformationMessage('erlab: open a notebook to run the magic.');
 		return '';
@@ -57,12 +178,29 @@ export async function executeInKernel(notebookUri: vscode.Uri | undefined, code:
 	const chunks: string[] = [];
 	const errors: string[] = [];
 	let iterationCount = 0;
-	try {
+	const label = formatOperationLabel(options?.operation);
+	const warnAfterMs = options?.warnAfterMs ?? DEFAULT_KERNEL_WARN_MS;
+	const interruptOnTimeout = options?.interruptOnTimeout ?? true;
+
+	const iterator = kernel.executeCode(code, tokenSource.token)[Symbol.asyncIterator]();
+	const timeoutController = createKernelExecutionTimeout(options, label, () => {
+		tokenSource.cancel();
+		void iterator.return?.();
+		if (interruptOnTimeout) {
+			void tryInterruptKernel(kernel, notebookUri, options?.operation);
+		}
+	});
+	const executionPromise = (async () => {
 		logger.trace('Starting kernel execution loop...');
-		for await (const output of kernel.executeCode(code, tokenSource.token)) {
+		for (;;) {
+			const { value, done } = await iterator.next();
+			if (done || !value) {
+				break;
+			}
 			iterationCount++;
-			logger.trace('Kernel output iteration {0}: received {1} items', iterationCount, output.items.length);
-			for (const item of output.items) {
+			timeoutController.onOutput();
+			logger.trace('Kernel output iteration {0}: received {1} items', iterationCount, value.items.length);
+			for (const item of value.items) {
 				if (item.mime === errorMime) {
 					const decoded = decodeKernelOutputItem(item) ?? '';
 					errors.push(normalizeKernelError(decoded));
@@ -75,18 +213,33 @@ export async function executeInKernel(notebookUri: vscode.Uri | undefined, code:
 			}
 		}
 		logger.trace(`Kernel execution loop completed after ${iterationCount} iterations`);
+
+		if (errors.length > 0) {
+			const errorMessage = errors.map((err) => err.trim()).filter(Boolean).join('; ');
+			logger.error(`Kernel execution failed${label}: ${errorMessage}`);
+			throw new Error(errorMessage);
+		}
+
+		logger.debug(`Kernel execution completed${label}, received ${chunks.length} output chunks`);
+		return chunks.join('');
+	})();
+
+	try {
+		const result = timeoutController.timeoutPromise
+			? await Promise.race([executionPromise, timeoutController.timeoutPromise])
+			: await executionPromise;
+		const elapsedMs = timeoutController.getElapsedMs();
+		if (warnAfterMs > 0 && elapsedMs > warnAfterMs) {
+			logger.warn(`Slow kernel execution${label}: ${elapsedMs}ms`);
+		}
+		return result;
 	} finally {
+		timeoutController.dispose();
+		if (timeoutController.didTimeout()) {
+			void executionPromise.catch(() => {});
+		}
 		tokenSource.dispose();
 	}
-
-	if (errors.length > 0) {
-		const errorMessage = errors.map((err) => err.trim()).filter(Boolean).join('; ');
-		logger.error(`Kernel execution failed: ${errorMessage}`);
-		throw new Error(errorMessage);
-	}
-
-	logger.debug(`Kernel execution completed, received ${chunks.length} output chunks`);
-	return chunks.join('');
 }
 
 /**
@@ -95,7 +248,8 @@ export async function executeInKernel(notebookUri: vscode.Uri | undefined, code:
  */
 export async function executeInKernelForOutput(
 	notebookUri: vscode.Uri,
-	code: string
+	code: string,
+	options?: KernelExecutionOptions
 ): Promise<string> {
 	const jupyterApi = await getJupyterApi();
 	if (!jupyterApi) {
@@ -110,8 +264,11 @@ export async function executeInKernelForOutput(
 		throw new Error('No active kernel for this notebook.');
 	}
 
+	const executionMarker = `__erlab_exec_start_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+	const codeWithMarker = `print(${JSON.stringify(executionMarker)})\n${code}`;
+
 	logger.debug(`Executing code for output in kernel for ${notebookUri.fsPath}`);
-	logger.trace(`Python code to execute:\n${code}`);
+	logger.trace(`Python code to execute:\n${codeWithMarker}`);
 
 	const tokenSource = new vscode.CancellationTokenSource();
 	const errorMime = vscode.NotebookCellOutputItem.error(new Error('')).mime;
@@ -120,12 +277,29 @@ export async function executeInKernelForOutput(
 	const chunks: string[] = [];
 	const errors: string[] = [];
 	let iterationCount = 0;
-	try {
+	const label = formatOperationLabel(options?.operation);
+	const warnAfterMs = options?.warnAfterMs ?? DEFAULT_KERNEL_WARN_MS;
+	const interruptOnTimeout = options?.interruptOnTimeout ?? true;
+
+	const iterator = kernel.executeCode(codeWithMarker, tokenSource.token)[Symbol.asyncIterator]();
+	const timeoutController = createKernelExecutionTimeout(options, label, () => {
+		tokenSource.cancel();
+		void iterator.return?.();
+		if (interruptOnTimeout) {
+			void tryInterruptKernel(kernel, notebookUri, options?.operation);
+		}
+	});
+	const executionPromise = (async () => {
 		logger.trace('Starting kernel execution loop...');
-		for await (const output of kernel.executeCode(code, tokenSource.token)) {
+		for (;;) {
+			const { value, done } = await iterator.next();
+			if (done || !value) {
+				break;
+			}
 			iterationCount++;
-			logger.trace(`Kernel output iteration ${iterationCount}: received ${output.items.length} items`);
-			for (const item of output.items) {
+			timeoutController.onOutput();
+			logger.trace(`Kernel output iteration ${iterationCount}: received ${value.items.length} items`);
+			for (const item of value.items) {
 				if (item.mime === errorMime) {
 					const decoded = decodeKernelOutputItem(item) ?? '';
 					errors.push(normalizeKernelError(decoded));
@@ -143,16 +317,36 @@ export async function executeInKernelForOutput(
 			}
 		}
 		logger.trace(`Kernel execution loop completed after ${iterationCount} iterations`);
+
+		if (errors.length > 0) {
+			const errorMessage = errors.map((err) => err.trim()).filter(Boolean).join('; ');
+			logger.error(`Kernel execution for output failed${label}: ${errorMessage}`);
+			throw new Error(errorMessage);
+		}
+
+		logger.debug(`Kernel execution for output completed${label}, received ${chunks.length} chunks`);
+		const output = chunks.join('');
+		const cleaned = output
+			.split(/\r?\n/)
+			.filter((line) => line !== executionMarker)
+			.join('\n');
+		return cleaned;
+	})();
+
+	try {
+		const result = timeoutController.timeoutPromise
+			? await Promise.race([executionPromise, timeoutController.timeoutPromise])
+			: await executionPromise;
+		const elapsedMs = timeoutController.getElapsedMs();
+		if (warnAfterMs > 0 && elapsedMs > warnAfterMs) {
+			logger.warn(`Slow kernel execution${label}: ${elapsedMs}ms`);
+		}
+		return result;
 	} finally {
+		timeoutController.dispose();
+		if (timeoutController.didTimeout()) {
+			void executionPromise.catch(() => {});
+		}
 		tokenSource.dispose();
 	}
-
-	if (errors.length > 0) {
-		const errorMessage = errors.map((err) => err.trim()).filter(Boolean).join('; ');
-		logger.error(`Kernel execution for output failed: ${errorMessage}`);
-		throw new Error(errorMessage);
-	}
-
-	logger.debug(`Kernel execution for output completed, received ${chunks.length} chunks`);
-	return chunks.join('');
 }
