@@ -6,6 +6,7 @@ All notable changes to the extension will be documented in this file.
 
 - Add timeouts for kernel output queries with best-effort kernel interrupts and warn on
   slow kernel executions in logs.
+- Hide "Show in ImageTool" button for Datasets and DataTrees.
 
 ## [v0.3.1] - 2026-01-14
 

@@ -367,6 +367,9 @@ export function activate(context: vscode.ExtensionContext) {
 				if (token.isCancellationRequested || !entry) {
 					return [];
 				}
+				if (entry.type !== 'DataArray') {
+					return [];
+				}
 
 				const label = `$(empty-window) Open '${variableName}' in ImageTool`;
 				const item = new vscode.NotebookCellStatusBarItem(
