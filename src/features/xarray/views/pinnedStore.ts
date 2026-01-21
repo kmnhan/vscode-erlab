@@ -7,9 +7,11 @@ const PINNED_XARRAY_KEY = 'erlab.pinnedXarray';
 
 export class PinnedXarrayStore {
 	private readonly state: vscode.Memento;
+	private pinnedByNotebook: Record<string, string[]>;
 
 	constructor(state: vscode.Memento) {
 		this.state = state;
+		this.pinnedByNotebook = this.state.get<Record<string, string[]>>(PINNED_XARRAY_KEY, {});
 	}
 
 	isPinned(notebookUri: vscode.Uri, variableName: string): boolean {
@@ -17,8 +19,7 @@ export class PinnedXarrayStore {
 	}
 
 	getPinned(notebookUri: vscode.Uri): string[] {
-		const allPinned = this.state.get<Record<string, string[]>>(PINNED_XARRAY_KEY, {});
-		return allPinned[notebookUri.toString()] ?? [];
+		return this.pinnedByNotebook[notebookUri.toString()] ?? [];
 	}
 
 	async pin(notebookUri: vscode.Uri, variableName: string): Promise<void> {
@@ -35,8 +36,8 @@ export class PinnedXarrayStore {
 	}
 
 	async setPinned(notebookUri: vscode.Uri, pinned: string[]): Promise<void> {
-		const allPinned = this.state.get<Record<string, string[]>>(PINNED_XARRAY_KEY, {});
-		const next = { ...allPinned, [notebookUri.toString()]: pinned };
+		const next = { ...this.pinnedByNotebook, [notebookUri.toString()]: pinned };
+		this.pinnedByNotebook = next;
 		await this.state.update(PINNED_XARRAY_KEY, next);
 	}
 }

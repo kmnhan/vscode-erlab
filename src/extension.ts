@@ -268,19 +268,6 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
-		const position = event.selections[0].active;
-		const range = event.textEditor.document.getWordRangeAtPosition(position);
-		if (!range) {
-			await vscode.commands.executeCommand('setContext', DATA_ARRAY_CONTEXT, false);
-			return;
-		}
-		const selectedVariable = event.textEditor.document.getText(range);
-		if (!isValidPythonIdentifier(selectedVariable)) {
-			await vscode.commands.executeCommand('setContext', DATA_ARRAY_CONTEXT, false);
-			await vscode.commands.executeCommand('setContext', DATA_ARRAY_WATCHED_CONTEXT, false);
-			return;
-		}
-
 		// Use synchronous cache lookup - no kernel query on keystroke
 		const notebookUri = getNotebookUriForDocument(event.textEditor.document);
 		if (!notebookUri) {
@@ -288,7 +275,7 @@ export function activate(context: vscode.ExtensionContext) {
 			await vscode.commands.executeCommand('setContext', DATA_ARRAY_WATCHED_CONTEXT, false);
 			return;
 		}
-		const entry = getCachedXarrayEntry(notebookUri, selectedVariable);
+		const entry = getCachedXarrayEntry(notebookUri, variableName);
 		const isDataArray = Boolean(entry);
 		await vscode.commands.executeCommand('setContext', DATA_ARRAY_CONTEXT, isDataArray);
 		await vscode.commands.executeCommand('setContext', DATA_ARRAY_WATCHED_CONTEXT, Boolean(entry?.watched));

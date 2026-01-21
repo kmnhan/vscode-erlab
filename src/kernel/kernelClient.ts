@@ -2,7 +2,7 @@
  * Kernel execution utilities for interacting with Jupyter kernels.
  */
 import * as vscode from 'vscode';
-import type { JupyterApi, KernelLike } from './types';
+import type { JupyterApi, KernelLike, KernelOutputItem } from './types';
 import { logger } from '../logger';
 import {
 	decodeKernelOutputItem,
@@ -31,6 +31,7 @@ function createKernelExecutionTimeout(
 ): {
 	timeoutPromise?: Promise<never>;
 	getElapsedMs: () => number;
+	start: () => void;
 	onOutput: () => void;
 	dispose: () => void;
 	didTimeout: () => boolean;
@@ -86,7 +87,6 @@ function createKernelExecutionTimeout(
 			clearTimeout(queueWarnHandle);
 			queueWarnHandle = undefined;
 		}
-		startTimer();
 	};
 
 	const dispose = () => {
@@ -100,6 +100,7 @@ function createKernelExecutionTimeout(
 	return {
 		timeoutPromise,
 		getElapsedMs,
+		start: startTimer,
 		onOutput,
 		dispose,
 		didTimeout: () => didTimeoutFlag,
@@ -114,15 +115,15 @@ async function tryInterruptKernel(
 ): Promise<void> {
 	const label = formatOperationLabel(operation);
 	try {
-		const commands = await vscode.commands.getCommands(true);
-		if (!commands.includes('jupyter.interruptkernel')) {
-			logger.warn(`Kernel interrupt command not available${label}.`);
-			return;
-		}
 		await vscode.commands.executeCommand('jupyter.interruptkernel', notebookUri);
 		logger.warn(`Interrupted kernel via command${label}`);
 	} catch (error) {
-		logger.warn(`Kernel command interrupt failed${label}: ${error instanceof Error ? error.message : String(error)}`);
+		const message = error instanceof Error ? error.message : String(error);
+		if (/command .*not found/i.test(message)) {
+			logger.warn(`Kernel interrupt command not available${label}.`);
+			return;
+		}
+		logger.warn(`Kernel command interrupt failed${label}: ${message}`);
 	}
 }
 
@@ -179,36 +180,32 @@ export async function executeInKernel(
 	const errors: string[] = [];
 	let iterationCount = 0;
 	const label = formatOperationLabel(options?.operation);
-	const warnAfterMs = options?.warnAfterMs ?? DEFAULT_KERNEL_WARN_MS;
-	const interruptOnTimeout = options?.interruptOnTimeout ?? true;
-
 	const iterator = kernel.executeCode(code, tokenSource.token)[Symbol.asyncIterator]();
-	const timeoutController = createKernelExecutionTimeout(options, label, () => {
-		tokenSource.cancel();
-		void iterator.return?.();
-		if (interruptOnTimeout) {
-			void tryInterruptKernel(kernel, notebookUri, options?.operation);
+	const outputMimes = new Set([stdoutMime, textPlainMime]);
+	const handleDecodedOutput = (item: KernelOutputItem) => {
+		if (!outputMimes.has(item.mime)) {
+			return;
 		}
-	});
+		const decoded = decodeKernelOutputItem(item);
+		if (decoded) {
+			chunks.push(decoded);
+		}
+	};
 	const executionPromise = (async () => {
 		logger.trace('Starting kernel execution loop...');
-		for (;;) {
+		for (; ;) {
 			const { value, done } = await iterator.next();
 			if (done || !value) {
 				break;
 			}
 			iterationCount++;
-			timeoutController.onOutput();
 			logger.trace('Kernel output iteration {0}: received {1} items', iterationCount, value.items.length);
 			for (const item of value.items) {
 				if (item.mime === errorMime) {
 					const decoded = decodeKernelOutputItem(item) ?? '';
 					errors.push(normalizeKernelError(decoded));
-				} else if (item.mime === stdoutMime || item.mime === textPlainMime) {
-					const decoded = decodeKernelOutputItem(item);
-					if (decoded) {
-						chunks.push(decoded);
-					}
+				} else {
+					handleDecodedOutput(item);
 				}
 			}
 		}
@@ -225,19 +222,9 @@ export async function executeInKernel(
 	})();
 
 	try {
-		const result = timeoutController.timeoutPromise
-			? await Promise.race([executionPromise, timeoutController.timeoutPromise])
-			: await executionPromise;
-		const elapsedMs = timeoutController.getElapsedMs();
-		if (warnAfterMs > 0 && elapsedMs > warnAfterMs) {
-			logger.warn(`Slow kernel execution${label}: ${elapsedMs}ms`);
-		}
+		const result = await executionPromise;
 		return result;
 	} finally {
-		timeoutController.dispose();
-		if (timeoutController.didTimeout()) {
-			void executionPromise.catch(() => {});
-		}
 		tokenSource.dispose();
 	}
 }
@@ -265,18 +252,17 @@ export async function executeInKernelForOutput(
 	}
 
 	const executionMarker = `__erlab_exec_start_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-	const codeWithMarker = `print(${JSON.stringify(executionMarker)})\n${code}`;
+	const codeWithMarker = `print(${JSON.stringify(executionMarker)}, flush=True)\n${code}`;
 
 	logger.debug(`Executing code for output in kernel for ${notebookUri.fsPath}`);
 	logger.trace(`Python code to execute:\n${codeWithMarker}`);
 
 	const tokenSource = new vscode.CancellationTokenSource();
 	const errorMime = vscode.NotebookCellOutputItem.error(new Error('')).mime;
-	const stdoutMime = vscode.NotebookCellOutputItem.stdout('').mime;
-	const textPlainMime = 'text/plain';
 	const chunks: string[] = [];
 	const errors: string[] = [];
 	let iterationCount = 0;
+	let markerSeen = false;
 	const label = formatOperationLabel(options?.operation);
 	const warnAfterMs = options?.warnAfterMs ?? DEFAULT_KERNEL_WARN_MS;
 	const interruptOnTimeout = options?.interruptOnTimeout ?? true;
@@ -289,9 +275,19 @@ export async function executeInKernelForOutput(
 			void tryInterruptKernel(kernel, notebookUri, options?.operation);
 		}
 	});
+	const handleDecodedOutput = (decoded?: string) => {
+		if (!decoded) {
+			return;
+		}
+		if (!markerSeen && decoded.includes(executionMarker)) {
+			markerSeen = true;
+			timeoutController.start();
+		}
+		chunks.push(decoded);
+	};
 	const executionPromise = (async () => {
 		logger.trace('Starting kernel execution loop...');
-		for (;;) {
+		for (; ;) {
 			const { value, done } = await iterator.next();
 			if (done || !value) {
 				break;
@@ -303,20 +299,13 @@ export async function executeInKernelForOutput(
 				if (item.mime === errorMime) {
 					const decoded = decodeKernelOutputItem(item) ?? '';
 					errors.push(normalizeKernelError(decoded));
-				} else if (item.mime === stdoutMime || item.mime === textPlainMime) {
-					const decoded = decodeKernelOutputItem(item);
-					if (decoded) {
-						chunks.push(decoded);
-					}
 				} else {
-					const decoded = decodeKernelOutputItem(item);
-					if (decoded) {
-						chunks.push(decoded);
-					}
+					handleDecodedOutput(decodeKernelOutputItem(item));
 				}
 			}
 		}
-		logger.trace(`Kernel execution loop completed after ${iterationCount} iterations`);
+		const loopElapsedMs = timeoutController.getElapsedMs();
+		logger.trace(`Kernel execution loop completed after ${iterationCount} iterations in ${loopElapsedMs}ms`);
 
 		if (errors.length > 0) {
 			const errorMessage = errors.map((err) => err.trim()).filter(Boolean).join('; ');
@@ -345,7 +334,7 @@ export async function executeInKernelForOutput(
 	} finally {
 		timeoutController.dispose();
 		if (timeoutController.didTimeout()) {
-			void executionPromise.catch(() => {});
+			void executionPromise.catch(() => { });
 		}
 		tokenSource.dispose();
 	}

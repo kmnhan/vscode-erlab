@@ -3,6 +3,8 @@
  */
 import * as vscode from 'vscode';
 
+const notebookUriByCellDocument = new WeakMap<vscode.TextDocument, vscode.Uri>();
+
 /**
  * Check if a document is a notebook cell document.
  */
@@ -14,9 +16,14 @@ export function isNotebookCellDocument(document: vscode.TextDocument): boolean {
  * Get the notebook URI for a cell document.
  */
 export function getNotebookUriForDocument(document: vscode.TextDocument): vscode.Uri | undefined {
+	const cached = notebookUriByCellDocument.get(document);
+	if (cached) {
+		return cached;
+	}
 	for (const notebook of vscode.workspace.notebookDocuments) {
 		for (const cell of notebook.getCells()) {
 			if (cell.document.uri.toString() === document.uri.toString()) {
+				notebookUriByCellDocument.set(document, notebook.uri);
 				return notebook.uri;
 			}
 		}

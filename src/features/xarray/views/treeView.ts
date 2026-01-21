@@ -131,13 +131,14 @@ export class XarrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeI
 		if (prunedPinned.length !== pinned.length) {
 			await this.pinnedStore.setPinned(notebookUri, prunedPinned);
 		}
+		const pinnedSet = new Set(prunedPinned);
 		const pinnedEntries = prunedPinned.map((name) => entryMap.get(name)).filter(Boolean) as XarrayEntry[];
 		const unpinnedEntries = entries
-			.filter((entry) => !prunedPinned.includes(entry.variableName))
+			.filter((entry) => !pinnedSet.has(entry.variableName))
 			.sort((a, b) => a.variableName.localeCompare(b.variableName));
 		const ordered = [...pinnedEntries, ...unpinnedEntries];
 		this.itemsByName = new Map(
-			ordered.map((entry) => [entry.variableName, new XarrayTreeItem(entry, notebookUri, prunedPinned.includes(entry.variableName))])
+			ordered.map((entry) => [entry.variableName, new XarrayTreeItem(entry, notebookUri, pinnedSet.has(entry.variableName))])
 		);
 		this.lastItems = Array.from(this.itemsByName.values());
 		return this.lastItems;
