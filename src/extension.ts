@@ -146,6 +146,11 @@ export function activate(context: vscode.ExtensionContext) {
 	const xarrayVisibilityDisposable = xarrayTreeView.onDidChangeVisibility(() => {
 		void requestXarrayRefresh();
 	});
+	const xarraySelectionDisposable = xarrayTreeView.onDidChangeSelection((event) => {
+		if (event.selection.length === 0) {
+			xarrayDetailProvider.clearDetail();
+		}
+	});
 
 	// Populate cache on initial activation if there's an active notebook
 	const activeNotebook = getActiveNotebookUri();
@@ -603,7 +608,8 @@ export function activate(context: vscode.ExtensionContext) {
 		showOutputDisposable,
 		xarrayTreeView,
 		xarrayDetailDisposable,
-		xarrayVisibilityDisposable
+		xarrayVisibilityDisposable,
+		xarraySelectionDisposable
 	);
 }
 
