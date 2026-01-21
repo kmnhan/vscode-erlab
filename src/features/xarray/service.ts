@@ -4,20 +4,23 @@
 import * as vscode from 'vscode';
 import { executeInKernelForOutput, extractLastJsonLine } from '../../kernel';
 import { isValidPythonIdentifier } from '../../python/identifiers';
-import { type XarrayEntry, type XarrayObjectType } from './types';
+import { type XarrayEntry, type XarrayObjectType, isDataArrayEntry } from './types';
 import { buildXarrayQueryCode } from './pythonSnippets';
 import { logger } from '../../logger';
 
 /**
  * Cache structure: notebookUri -> Map<variableName, XarrayEntry>
- * This cache is only refreshed on cell execution completion.
+ * List refreshes store summary metadata; per-variable details are fetched on demand.
  */
 const xarrayCache = new Map<string, Map<string, XarrayEntry>>();
+const xarrayCacheMeta = new Map<string, Map<string, { updatedAt: number; hasDetails: boolean }>>();
+const listCacheState = new Map<string, { updatedAt: number }>();
 
 /**
  * Track in-flight refresh requests to avoid duplicate kernel queries.
  */
 const pendingRefreshes = new Map<string, Promise<{ entries: XarrayEntry[]; error?: string }>>();
+const pendingEntryRefreshes = new Map<string, Promise<{ entry?: XarrayEntry; error?: string }>>();
 
 /**
  * Debounce timers for refresh requests per notebook.
@@ -28,12 +31,51 @@ const debounceTimers = new Map<string, NodeJS.Timeout>();
  * Debounce delay in milliseconds for coalescing rapid refresh requests.
  */
 const REFRESH_DEBOUNCE_MS = 150;
+const ENTRY_STALE_MS = 2000;
 
 /**
  * Get the cache key for a notebook URI.
  */
 function getNotebookCacheKey(notebookUri: vscode.Uri): string {
 	return notebookUri.toString();
+}
+
+function getNotebookCacheMeta(cacheKey: string): Map<string, { updatedAt: number; hasDetails: boolean }> {
+	const meta = xarrayCacheMeta.get(cacheKey);
+	if (meta) {
+		return meta;
+	}
+	const next = new Map<string, { updatedAt: number; hasDetails: boolean }>();
+	xarrayCacheMeta.set(cacheKey, next);
+	return next;
+}
+
+function mergeDataArrayEntry(
+	existing: XarrayEntry | undefined,
+	incoming: XarrayEntry
+): { entry: XarrayEntry; hasDetails: boolean } {
+	if (incoming.type !== 'DataArray') {
+		return { entry: incoming, hasDetails: false };
+	}
+
+	const incomingHasDetails = isDataArrayEntry(incoming);
+	if (incomingHasDetails) {
+		return { entry: incoming, hasDetails: true };
+	}
+	if (existing && existing.type === 'DataArray' && isDataArrayEntry(existing)) {
+		return {
+			entry: {
+				...incoming,
+				dims: existing.dims,
+				sizes: existing.sizes,
+				shape: existing.shape,
+				dtype: existing.dtype,
+				ndim: existing.ndim,
+			},
+			hasDetails: true,
+		};
+	}
+	return { entry: incoming, hasDetails: false };
 }
 
 /**
@@ -76,19 +118,27 @@ function parseXarrayResponse(output: string): { entries: XarrayEntry[]; error?: 
 				type: entry.type as XarrayObjectType,
 				name: entry.name ?? undefined,
 			};
-			// Add DataArray-specific fields if present
-			if (entry.type === 'DataArray') {
-				return {
-					...base,
-					dims: entry.dims as string[],
-					sizes: entry.sizes as Record<string, number>,
-					shape: entry.shape as number[],
-					dtype: entry.dtype as string,
-					ndim: entry.ndim as number,
-					watched: entry.watched ?? false,
-				};
+			if (entry.type !== 'DataArray') {
+				return base;
 			}
-			return base;
+			const dataArray: XarrayEntry = {
+				...base,
+				watched: entry.watched ?? false,
+			};
+			const hasDetails = Array.isArray(entry.dims)
+				&& entry.sizes
+				&& typeof entry.sizes === 'object'
+				&& Array.isArray(entry.shape)
+				&& entry.dtype !== undefined
+				&& entry.ndim !== undefined;
+			if (hasDetails) {
+				dataArray.dims = entry.dims as string[];
+				dataArray.sizes = entry.sizes as Record<string, number>;
+				dataArray.shape = entry.shape as number[];
+				dataArray.dtype = entry.dtype as string;
+				dataArray.ndim = entry.ndim as number;
+			}
+			return dataArray;
 		});
 
 	return { entries };
@@ -104,29 +154,50 @@ async function doRefreshXarrayCache(
 	logger.info(`Refreshing xarray cache for ${notebookUri.fsPath}`);
 
 	try {
-		const output = await executeInKernelForOutput(notebookUri, buildXarrayQueryCode(), {
-			operation: 'xarray-query',
-		});
+		const output = await executeInKernelForOutput(
+			notebookUri,
+			buildXarrayQueryCode(undefined, { includeDataArrayDetails: false }),
+			{
+				operation: 'xarray-query',
+			}
+		);
 		const { entries, error } = parseXarrayResponse(output);
 
 		if (error) {
 			// On error, clear the cache for this notebook
 			xarrayCache.delete(cacheKey);
+			xarrayCacheMeta.delete(cacheKey);
+			listCacheState.delete(cacheKey);
 			logger.warn(`xarray cache refresh failed: ${error}`);
 			return { entries: [], error };
 		}
 
-		// Update the cache with all entries
+		// Update the cache with all entries, preserving existing details when possible
+		const existingCache = xarrayCache.get(cacheKey);
+		const existingMeta = xarrayCacheMeta.get(cacheKey);
 		const notebookCache = new Map<string, XarrayEntry>();
+		const notebookMeta = new Map<string, { updatedAt: number; hasDetails: boolean }>();
+		const updatedAt = Date.now();
 		for (const entry of entries) {
-			notebookCache.set(entry.variableName, entry);
+			const existing = existingCache?.get(entry.variableName);
+			const merged = mergeDataArrayEntry(existing, entry);
+			const existingHasDetails = existingMeta?.get(entry.variableName)?.hasDetails ?? false;
+			const hasDetails = entry.type === 'DataArray'
+				? (merged.hasDetails || existingHasDetails)
+				: false;
+			notebookCache.set(entry.variableName, merged.entry);
+			notebookMeta.set(entry.variableName, { updatedAt, hasDetails });
 		}
 		xarrayCache.set(cacheKey, notebookCache);
+		xarrayCacheMeta.set(cacheKey, notebookMeta);
+		listCacheState.set(cacheKey, { updatedAt });
 
 		logger.debug(`xarray cache updated: found ${entries.length} objects`);
 		return { entries };
 	} catch (err) {
 		xarrayCache.delete(cacheKey);
+		xarrayCacheMeta.delete(cacheKey);
+		listCacheState.delete(cacheKey);
 		const message = err instanceof Error && err.message
 			? err.message
 			: 'Failed to query the kernel. Ensure the Jupyter kernel is running.';
@@ -140,7 +211,7 @@ async function doRefreshXarrayCache(
 
 /**
  * Refresh the xarray cache for a notebook by querying the kernel.
- * This queries all xarray objects in the namespace and updates the cache.
+ * This queries all xarray objects in the namespace and stores summary metadata.
  *
  * Requests are debounced (150ms) and coalesced: if a refresh is already
  * in-flight for this notebook, the existing promise is returned.
@@ -179,6 +250,60 @@ export async function refreshXarrayCache(
 	return refreshPromise;
 }
 
+export async function refreshXarrayEntry(
+	notebookUri: vscode.Uri,
+	variableName: string,
+	options?: { includeDetails?: boolean; reason?: string }
+): Promise<{ entry?: XarrayEntry; error?: string }> {
+	const cacheKey = getNotebookCacheKey(notebookUri);
+	const pendingKey = `${cacheKey}::${variableName}`;
+	const pending = pendingEntryRefreshes.get(pendingKey);
+	if (pending) {
+		logger.trace(`Reusing in-flight entry refresh for ${variableName}`);
+		return pending;
+	}
+
+	const refreshPromise = (async () => {
+		try {
+			const output = await executeInKernelForOutput(
+				notebookUri,
+				buildXarrayQueryCode(variableName, { includeDataArrayDetails: options?.includeDetails }),
+				{ operation: options?.reason ? `xarray-entry:${options.reason}` : 'xarray-entry' }
+			);
+			const { entries, error } = parseXarrayResponse(output);
+			if (error) {
+				logger.warn(`xarray entry refresh failed: ${error}`);
+				return { entry: undefined, error };
+			}
+			const entry = entries.find((candidate) => candidate.variableName === variableName);
+			if (!entry) {
+				xarrayCache.get(cacheKey)?.delete(variableName);
+				xarrayCacheMeta.get(cacheKey)?.delete(variableName);
+				return { entry: undefined };
+			}
+			const cache = xarrayCache.get(cacheKey) ?? new Map<string, XarrayEntry>();
+			const existing = cache.get(variableName);
+			const merged = mergeDataArrayEntry(existing, entry);
+			cache.set(variableName, merged.entry);
+			xarrayCache.set(cacheKey, cache);
+			const meta = getNotebookCacheMeta(cacheKey);
+			meta.set(variableName, { updatedAt: Date.now(), hasDetails: merged.hasDetails });
+			return { entry: merged.entry };
+		} catch (err) {
+			const message = err instanceof Error && err.message
+				? err.message
+				: 'Failed to query the kernel. Ensure the Jupyter kernel is running.';
+			logger.error(`xarray entry refresh error: ${err instanceof Error ? err.message : String(err)}`);
+			return { entry: undefined, error: message };
+		} finally {
+			pendingEntryRefreshes.delete(pendingKey);
+		}
+	})();
+
+	pendingEntryRefreshes.set(pendingKey, refreshPromise);
+	return refreshPromise;
+}
+
 /**
  * @deprecated Use refreshXarrayCache instead
  */
@@ -195,6 +320,35 @@ export function getCachedXarrayEntry(
 	const cacheKey = getNotebookCacheKey(notebookUri);
 	const notebookCache = xarrayCache.get(cacheKey);
 	return notebookCache?.get(variableName);
+}
+
+export function hasXarrayEntryDetails(
+	notebookUri: vscode.Uri,
+	variableName: string
+): boolean {
+	const cacheKey = getNotebookCacheKey(notebookUri);
+	const entry = getCachedXarrayEntry(notebookUri, variableName);
+	if (!entry || entry.type !== 'DataArray') {
+		return false;
+	}
+	const meta = xarrayCacheMeta.get(cacheKey)?.get(variableName);
+	if (meta) {
+		return meta.hasDetails;
+	}
+	return isDataArrayEntry(entry);
+}
+
+export function isXarrayEntryStale(
+	notebookUri: vscode.Uri,
+	variableName: string,
+	maxAgeMs: number = ENTRY_STALE_MS
+): boolean {
+	const cacheKey = getNotebookCacheKey(notebookUri);
+	const meta = xarrayCacheMeta.get(cacheKey)?.get(variableName);
+	if (!meta) {
+		return true;
+	}
+	return Date.now() - meta.updatedAt > maxAgeMs;
 }
 
 /**
@@ -227,7 +381,13 @@ export function getCachedXarrayEntries(
 ): XarrayEntry[] {
 	const cacheKey = getNotebookCacheKey(notebookUri);
 	const notebookCache = xarrayCache.get(cacheKey);
-	return notebookCache ? Array.from(notebookCache.values()) : [];
+	if (!notebookCache) {
+		return [];
+	}
+	if (!listCacheState.has(cacheKey)) {
+		return [];
+	}
+	return Array.from(notebookCache.values());
 }
 
 /**
@@ -256,6 +416,7 @@ export function invalidateXarrayCacheEntry(
 	const cacheKey = getNotebookCacheKey(notebookUri);
 	const notebookCache = xarrayCache.get(cacheKey);
 	notebookCache?.delete(variableName);
+	xarrayCacheMeta.get(cacheKey)?.delete(variableName);
 }
 
 /**

@@ -11,7 +11,7 @@ export type XarrayObjectType = 'DataArray' | 'Dataset' | 'DataTree';
  * Represents an xarray object entry with metadata.
  * Used for both individual queries and list results.
  *
- * - DataArray: has all fields including dims, sizes, shape, dtype, ndim, watched
+ * - DataArray: may include full metadata (dims/sizes/shape/dtype/ndim) when fetched on demand
  * - Dataset/DataTree: only have variableName, name, type (no dims/shape/dtype/ndim/watched)
  */
 export type XarrayEntry = {

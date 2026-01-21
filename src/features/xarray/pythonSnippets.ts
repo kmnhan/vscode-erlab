@@ -15,7 +15,19 @@ function indent(code: string, spaces: number): string {
 }
 
 /**
- * Common Python code for extracting DataArray info.
+ * Common Python code for extracting DataArray info (summary, no dims/shape).
+ * This helper is called within the generated code for each DataArray variable.
+ */
+const EXTRACT_DATAARRAY_SUMMARY_HELPER = `def ${ERLAB_TMP_PREFIX}extract_dataarray_summary(varname, da, watched_vars):
+    return {
+        "variableName": varname,
+        "type": "DataArray",
+        "name": da.name,
+        "watched": varname in watched_vars,
+    }`;
+
+/**
+ * Common Python code for extracting full DataArray info.
  * This helper is called within the generated code for each DataArray variable.
  */
 const EXTRACT_DATAARRAY_INFO_HELPER = `def ${ERLAB_TMP_PREFIX}extract_dataarray_info(varname, da, watched_vars):
@@ -69,7 +81,17 @@ except Exception:
  * If variableName is omitted, queries all xarray objects (DataArray, Dataset, DataTree) in the namespace.
  * Both modes return an array of XarrayEntry objects with variableName and type included.
  */
-export function buildXarrayQueryCode(variableName?: string): string {
+export interface XarrayQueryOptions {
+	includeDataArrayDetails?: boolean;
+}
+
+export function buildXarrayQueryCode(variableName?: string, options?: XarrayQueryOptions): string {
+	const includeDetails = options?.includeDataArrayDetails ?? Boolean(variableName);
+	const dataArrayHelper = includeDetails ? EXTRACT_DATAARRAY_INFO_HELPER : EXTRACT_DATAARRAY_SUMMARY_HELPER;
+	const dataArrayExtractor = includeDetails
+		? `${ERLAB_TMP_PREFIX}extract_dataarray_info`
+		: `${ERLAB_TMP_PREFIX}extract_dataarray_summary`;
+
 	if (variableName) {
 		// Single variable mode: returns array with 0 or 1 entry
 		return [
@@ -78,14 +100,14 @@ export function buildXarrayQueryCode(variableName?: string): string {
 			'try:',
 			'    import xarray as xr',
 			`    ${ERLAB_TMP_PREFIX}ip = IPython.get_ipython()`,
-			indent(EXTRACT_DATAARRAY_INFO_HELPER, 4),
+			indent(dataArrayHelper, 4),
 			indent(EXTRACT_DATASET_INFO_HELPER, 4),
 			indent(EXTRACT_DATATREE_INFO_HELPER, 4),
 			indent(GET_WATCHED_VARS_CODE, 4),
 			`    ${ERLAB_TMP_PREFIX}value = ${variableName}`,
 			`    ${ERLAB_TMP_PREFIX}varname = ${JSON.stringify(variableName)}`,
 			`    if isinstance(${ERLAB_TMP_PREFIX}value, xr.DataArray):`,
-			`        print(json.dumps([${ERLAB_TMP_PREFIX}extract_dataarray_info(${ERLAB_TMP_PREFIX}varname, ${ERLAB_TMP_PREFIX}value, ${ERLAB_TMP_PREFIX}watched_vars)]))`,
+			`        print(json.dumps([${dataArrayExtractor}(${ERLAB_TMP_PREFIX}varname, ${ERLAB_TMP_PREFIX}value, ${ERLAB_TMP_PREFIX}watched_vars)]))`,
 			`    elif isinstance(${ERLAB_TMP_PREFIX}value, xr.Dataset):`,
 			`        print(json.dumps([${ERLAB_TMP_PREFIX}extract_dataset_info(${ERLAB_TMP_PREFIX}varname, ${ERLAB_TMP_PREFIX}value)]))`,
 			`    elif hasattr(xr, 'DataTree') and isinstance(${ERLAB_TMP_PREFIX}value, xr.DataTree):`,
@@ -104,7 +126,7 @@ export function buildXarrayQueryCode(variableName?: string): string {
 			'    import xarray as xr',
 			`    ${ERLAB_TMP_PREFIX}ip = IPython.get_ipython()`,
 			`    ${ERLAB_TMP_PREFIX}user_ns = getattr(${ERLAB_TMP_PREFIX}ip, "user_ns", {}) if ${ERLAB_TMP_PREFIX}ip else {}`,
-			indent(EXTRACT_DATAARRAY_INFO_HELPER, 4),
+			indent(dataArrayHelper, 4),
 			indent(EXTRACT_DATASET_INFO_HELPER, 4),
 			indent(EXTRACT_DATATREE_INFO_HELPER, 4),
 			indent(GET_WATCHED_VARS_CODE, 4),
@@ -115,7 +137,7 @@ export function buildXarrayQueryCode(variableName?: string): string {
 			'            continue',
 			`        ${ERLAB_TMP_PREFIX}obj = ${ERLAB_TMP_PREFIX}user_ns.get(${ERLAB_TMP_PREFIX}varname, None)`,
 			`        if isinstance(${ERLAB_TMP_PREFIX}obj, xr.DataArray):`,
-			`            ${ERLAB_TMP_PREFIX}result.append(${ERLAB_TMP_PREFIX}extract_dataarray_info(${ERLAB_TMP_PREFIX}varname, ${ERLAB_TMP_PREFIX}obj, ${ERLAB_TMP_PREFIX}watched_vars))`,
+			`            ${ERLAB_TMP_PREFIX}result.append(${dataArrayExtractor}(${ERLAB_TMP_PREFIX}varname, ${ERLAB_TMP_PREFIX}obj, ${ERLAB_TMP_PREFIX}watched_vars))`,
 			`        elif isinstance(${ERLAB_TMP_PREFIX}obj, xr.Dataset):`,
 			`            ${ERLAB_TMP_PREFIX}result.append(${ERLAB_TMP_PREFIX}extract_dataset_info(${ERLAB_TMP_PREFIX}varname, ${ERLAB_TMP_PREFIX}obj))`,
 			`        elif ${ERLAB_TMP_PREFIX}has_datatree and isinstance(${ERLAB_TMP_PREFIX}obj, xr.DataTree):`,

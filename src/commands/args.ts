@@ -35,10 +35,11 @@ export function normalizeXarrayArgs(
 	// Check if this is an XarrayTreeItem by looking for its unique properties
 	if ('variableName' in args && 'info' in args && 'notebookUri' in args) {
 		const treeItem = args as XarrayTreeItem;
+		const isDataArray = treeItem.info.type === 'DataArray';
 		return {
 			variableName: treeItem.variableName,
 			notebookUri: treeItem.notebookUri.toString(),
-			watched: isDataArrayEntry(treeItem.info) ? treeItem.info.watched : false,
+			watched: isDataArray ? Boolean(treeItem.info.watched) : false,
 			ndim: isDataArrayEntry(treeItem.info) ? treeItem.info.ndim : undefined,
 			type: treeItem.info.type,
 		};

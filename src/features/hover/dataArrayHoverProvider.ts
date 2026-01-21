@@ -5,7 +5,12 @@ import * as vscode from 'vscode';
 import { isNotebookCellDocument, getNotebookUriForDocument } from '../../notebook';
 import { isValidPythonIdentifier } from '../../python/identifiers';
 import { encodeCommandArgs } from '../../commands';
-import { getCachedXarrayEntry } from '../xarray/service';
+import {
+	getCachedXarrayEntry,
+	hasXarrayEntryDetails,
+	isXarrayEntryStale,
+	refreshXarrayEntry,
+} from '../xarray/service';
 import { formatXarrayLabel } from '../xarray/formatting';
 import type { PinnedXarrayStore } from '../xarray/views/pinnedStore';
 
@@ -16,7 +21,7 @@ export function registerXarrayHoverProvider(
 	pinnedStore: PinnedXarrayStore
 ): vscode.Disposable {
 	return vscode.languages.registerHoverProvider({ language: 'python' }, {
-		provideHover: (document: vscode.TextDocument, position: vscode.Position): vscode.Hover | undefined => {
+		provideHover: async (document: vscode.TextDocument, position: vscode.Position): Promise<vscode.Hover | undefined> => {
 			if (!isNotebookCellDocument(document)) {
 				return;
 			}
@@ -31,12 +36,26 @@ export function registerXarrayHoverProvider(
 				return;
 			}
 
-			// Use synchronous cache lookup - no kernel query on hover
+			// Use cache lookup first; only refresh known DataArrays on demand.
 			const notebookUri = getNotebookUriForDocument(document);
 			if (!notebookUri) {
 				return;
 			}
-			const info = getCachedXarrayEntry(notebookUri, variableName);
+			let info = getCachedXarrayEntry(notebookUri, variableName);
+			if (!info) {
+				return;
+			}
+			const needsDetails = info.type === 'DataArray' && !hasXarrayEntryDetails(notebookUri, variableName);
+			const isStale = info.type === 'DataArray' && isXarrayEntryStale(notebookUri, variableName);
+			if (needsDetails || isStale) {
+				const refreshed = await refreshXarrayEntry(notebookUri, variableName, {
+					includeDetails: true,
+					reason: 'hover',
+				});
+				if (refreshed.entry) {
+					info = refreshed.entry;
+				}
+			}
 			if (!info) {
 				return;
 			}
