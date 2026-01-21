@@ -2,7 +2,7 @@
  * Unit tests for command argument encoding and normalization.
  */
 import * as assert from 'assert';
-import { encodeCommandArgs } from '../../commands/args';
+import { encodeCommandArgs, normalizeJupyterVariableViewerArgs } from '../../commands/args';
 
 suite('Command Args', () => {
 	suite('encodeCommandArgs', () => {
@@ -59,6 +59,52 @@ suite('Command Args', () => {
 			const encoded = encodeCommandArgs(original);
 			const decoded = JSON.parse(decodeURIComponent(encoded));
 			assert.deepStrictEqual(decoded, original);
+		});
+	});
+
+	suite('normalizeJupyterVariableViewerArgs', () => {
+		test('maps Jupyter variable viewer args to xarray args', () => {
+			const result = normalizeJupyterVariableViewerArgs({
+				name: 'data',
+				type: 'DataArray',
+				fileName: 'file:///path/to/notebook.ipynb',
+			});
+			assert.strictEqual(result?.variableName, 'data');
+			assert.strictEqual(result?.notebookUri, 'file:///path/to/notebook.ipynb');
+			assert.strictEqual(result?.type, 'DataArray');
+		});
+
+		test('ignores non-xarray types from variable viewer args', () => {
+			const result = normalizeJupyterVariableViewerArgs({
+				name: 'data',
+				type: 'Other',
+				fileName: 'file:///path/to/notebook.ipynb',
+			});
+			assert.strictEqual(result?.variableName, 'data');
+			assert.strictEqual(result?.type, undefined);
+		});
+
+		test('handles wrapped variable payloads', () => {
+			const result = normalizeJupyterVariableViewerArgs({
+				variable: {
+					name: 'data',
+					type: 'Dataset',
+					notebookUri: 'file:///path/to/notebook.ipynb',
+				},
+			});
+			assert.strictEqual(result?.variableName, 'data');
+			assert.strictEqual(result?.type, 'Dataset');
+			assert.strictEqual(result?.notebookUri, 'file:///path/to/notebook.ipynb');
+		});
+
+		test('handles variableName fallback', () => {
+			const result = normalizeJupyterVariableViewerArgs({
+				variableName: 'data',
+				type: 'DataTree',
+				fileName: 'file:///path/to/notebook.ipynb',
+			});
+			assert.strictEqual(result?.variableName, 'data');
+			assert.strictEqual(result?.type, 'DataTree');
 		});
 	});
 });

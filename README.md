@@ -20,6 +20,8 @@ its name and type, along with actions to:
 - Open the object's detail panel with its HTML representation.
 - Pin objects to keep them at the top of the list.
 
+The detail panel can also be triggered from the Jupyter Variables view.
+
 ### Integration with [`erlab`](https://github.com/kmnhan/erlabpy)
 
 If the kernel has the [`erlab` package](https://github.com/kmnhan/erlabpy) installed,
@@ -37,8 +39,6 @@ additional interactive tools appear for `DataArray` variables:
 3. Click an xarray object to open its detail panel and HTML representation.
 4. Hover over a variable name in a Python cell to use quick actions.
 5. Right-click a variable name to access actions from the context menu.
-6. When the last line of a cell is a DataArray variable name, use the status bar button
-   under the cell to open it in ImageTool (if ERLab tools are available).
 
 ## Commands
 
@@ -59,6 +59,11 @@ These commands appear when the kernel has the `erlab` package installed:
 - `erlab.ftool` - Open the DataArray in ftool (general curve fitting).
 - `erlab.goldtool` - Open the DataArray in goldtool (Fermi edge fitting).
 - `erlab.xarray.otherTools` - Show a picker to select from additional tools.
+
+### xarray commands
+
+- `erlab.openDetail` - Open the xarray Detail panel from the command palette or the
+  Jupyter Variables view.
 
 ## Settings
 

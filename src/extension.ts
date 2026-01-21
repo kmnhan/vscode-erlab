@@ -22,7 +22,9 @@ import { isValidPythonIdentifier } from './python/identifiers';
 // Commands
 import {
 	type MagicCommandArgs,
+	type JupyterVariableViewerArgs,
 	type XarrayPanelCommandArgs,
+	normalizeJupyterVariableViewerArgs,
 	normalizeXarrayArgs,
 } from './commands';
 import { buildMagicInvocation, buildItoolInvocation } from './commands/magicInvocation';
@@ -31,6 +33,7 @@ import { buildMagicInvocation, buildItoolInvocation } from './commands/magicInvo
 import {
 	DATA_ARRAY_CONTEXT,
 	DATA_ARRAY_WATCHED_CONTEXT,
+	formatXarrayLabel,
 	refreshXarrayCache,
 	isXarrayInCache,
 	getCachedXarrayEntry,
@@ -572,6 +575,74 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	);
 
+	const openDetailDisposable = vscode.commands.registerCommand(
+		'erlab.openDetail',
+		async (args?: unknown) => {
+			const normalized = normalizeJupyterVariableViewerArgs(args as JupyterVariableViewerArgs);
+			const paletteMessage = 'erlab: execute a cell to start the kernel and load variables.';
+			if (!normalized?.variableName) {
+				const activeNotebook = getActiveNotebookUri();
+				if (!activeNotebook) {
+					vscode.window.showInformationMessage(paletteMessage);
+					return;
+				}
+				const kernel = await getKernelForNotebook(activeNotebook);
+				if (!kernel) {
+					vscode.window.showInformationMessage(paletteMessage);
+					return;
+				}
+				const refresh = await refreshXarrayCache(activeNotebook);
+				if (refresh.error || refresh.entries.length === 0) {
+					vscode.window.showInformationMessage(paletteMessage);
+					return;
+				}
+				const entries = refresh.entries
+					.slice()
+					.sort((a, b) => a.variableName.localeCompare(b.variableName));
+				const picks = entries.map((entry) => ({
+					label: formatXarrayLabel(entry, entry.variableName),
+					description: entry.type,
+					entry,
+				}));
+				const selected = await vscode.window.showQuickPick(picks, {
+					placeHolder: 'Select an xarray object to inspect',
+				});
+				if (!selected) {
+					return;
+				}
+				if (activeNotebook) {
+					void xarrayPanelProvider.select(selected.entry.variableName);
+				}
+				await xarrayDetailProvider.showDetail(activeNotebook, selected.entry.variableName, selected.entry.type);
+				return;
+			}
+			const variableName = normalized.variableName;
+			let notebookUri = resolveNotebookUri(normalized?.notebookUri);
+			if (!notebookUri) {
+				vscode.window.showInformationMessage('erlab: open a notebook to view xarray objects.');
+				return;
+			}
+			let kernel = await getKernelForNotebook(notebookUri);
+			const activeNotebook = getActiveNotebookUri();
+			if (!kernel && activeNotebook) {
+				const activeKernel = await getKernelForNotebook(activeNotebook);
+				if (activeKernel) {
+					logger.debug('Variable viewer fallback to active notebook kernel.');
+					notebookUri = activeNotebook;
+					kernel = activeKernel;
+				}
+			}
+			if (!kernel) {
+				vscode.window.showInformationMessage(paletteMessage);
+				return;
+			}
+			if (activeNotebook && activeNotebook.toString() === notebookUri.toString()) {
+				void xarrayPanelProvider.select(variableName);
+			}
+			await xarrayDetailProvider.showDetail(notebookUri, variableName, normalized?.type);
+		}
+	);
+
 	const togglePinDisposable = vscode.commands.registerCommand(
 		'erlab.xarray.togglePin',
 		async (args?: XarrayPanelCommandArgs) => {
@@ -764,6 +835,7 @@ export function activate(context: vscode.ExtensionContext) {
 		notebookCellStatusBarDisposable,
 		refreshDataArrayPanelDisposable,
 		openDataArrayDetailDisposable,
+		openDetailDisposable,
 		togglePinDisposable,
 		pinDisposable,
 		unpinDisposable,

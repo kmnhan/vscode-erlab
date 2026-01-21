@@ -92,6 +92,10 @@
         "when": "view == erlabXarrayObjects && viewItem =~ /(dataArrayItem|datasetItem|datatreeItem).*/"
       },
       {
+        "command": "erlab.openDetail",
+        "title": "erlab: Open xarray Details"
+      },
+      {
         "command": "erlab.xarray.togglePin",
         "title": "erlab: Toggle Pin",
         "icon": "$(pin)",
@@ -303,7 +307,18 @@
           "icon": "$(info)"
         }
       ]
-    }
+    },
+    "jupyterVariableViewers": [
+      {
+        "command": "erlab.openDetail",
+        "title": "erlab: View xarray Details",
+        "dataTypes": [
+          "DataArray",
+          "Dataset",
+          "DataTree"
+        ]
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
