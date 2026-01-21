@@ -2,7 +2,7 @@
 
 All notable changes to the extension will be documented in this file.
 
-## [Unreleased]
+## [v0.4.0] - 2026-01-21
 
 - Hide ERLab magic actions and ImageTool status bar items when the `erlab` package is
   not available in the active kernel, while keeping xarray inspection features active.
