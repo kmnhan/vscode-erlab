@@ -87,6 +87,12 @@
         "when": "view == erlabXarrayObjects"
       },
       {
+        "command": "erlab.xarray.filterTypes",
+        "title": "erlab: Filter xarray Types",
+        "icon": "$(filter)",
+        "when": "view == erlabXarrayObjects"
+      },
+      {
         "command": "erlab.xarray.openDetail",
         "title": "erlab: Open xarray Details",
         "when": "view == erlabXarrayObjects && viewItem =~ /(dataArrayItem|datasetItem|datatreeItem).*/"
@@ -180,6 +186,10 @@
           "when": "false"
         },
         {
+          "command": "erlab.xarray.filterTypes",
+          "when": "false"
+        },
+        {
           "command": "erlab.xarray.togglePin",
           "when": "false"
         },
@@ -233,7 +243,12 @@
         {
           "command": "erlab.xarray.refresh",
           "when": "view == erlabXarrayObjects",
-          "group": "navigation"
+          "group": "navigation@1"
+        },
+        {
+          "command": "erlab.xarray.filterTypes",
+          "when": "view == erlabXarrayObjects",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [

@@ -40,6 +40,7 @@ import {
 	PinnedXarrayStore,
 	XarrayPanelProvider,
 	XarrayDetailViewProvider,
+	type XarrayObjectType,
 } from './features/xarray';
 import { registerXarrayHoverProvider } from './features/hover';
 
@@ -278,6 +279,7 @@ export function activate(context: vscode.ExtensionContext) {
 	const pinnedStore = new PinnedXarrayStore(context.globalState);
 	const xarrayPanelProvider = new XarrayPanelProvider(pinnedStore, {
 		onDidAccessNotebook: (notebookUri) => updateErlabContextForNotebook(notebookUri),
+		typeFilterState: context.globalState,
 	});
 	const xarrayTreeView = vscode.window.createTreeView('erlabXarrayObjects', {
 		treeDataProvider: xarrayPanelProvider,
@@ -549,6 +551,32 @@ export function activate(context: vscode.ExtensionContext) {
 	// ─────────────────────────────────────────────────────────────────────────
 	// DataArray panel commands
 	// ─────────────────────────────────────────────────────────────────────────
+	const filterXarrayTypesDisposable = vscode.commands.registerCommand(
+		'erlab.xarray.filterTypes',
+		async () => {
+			const currentFilters = new Set(xarrayPanelProvider.getTypeFilters());
+			const options: Array<{ type: XarrayObjectType; label: string; description: string }> = [
+				{ type: 'DataArray', label: 'DataArray', description: 'xarray.DataArray' },
+				{ type: 'Dataset', label: 'Dataset', description: 'xarray.Dataset' },
+				{ type: 'DataTree', label: 'DataTree', description: 'xarray.DataTree' },
+			];
+			const picks = options.map((option) => ({
+				label: option.label,
+				description: option.description,
+				type: option.type,
+				picked: currentFilters.has(option.type),
+			}));
+			const selected = await vscode.window.showQuickPick(picks, {
+				canPickMany: true,
+				placeHolder: 'Select xarray types to show in the Objects panel',
+			});
+			if (!selected) {
+				return;
+			}
+			await xarrayPanelProvider.setTypeFilters(selected.map((item) => item.type));
+		}
+	);
+
 	const refreshDataArrayPanelDisposable = vscode.commands.registerCommand(
 		'erlab.xarray.refresh',
 		() => requestXarrayRefresh({ refreshCache: true })
@@ -836,6 +864,7 @@ export function activate(context: vscode.ExtensionContext) {
 		refreshDataArrayPanelDisposable,
 		openDataArrayDetailDisposable,
 		openDetailDisposable,
+		filterXarrayTypesDisposable,
 		togglePinDisposable,
 		pinDisposable,
 		unpinDisposable,

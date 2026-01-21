@@ -9,6 +9,8 @@ All notable changes to the extension will be documented in this file.
 - Open the xarray Detail panel from the Jupyter Variables view.
 - Add the `erlab.openDetail` command with command palette support and a variable picker
   when invoked without arguments.
+- Add a filter button in the xarray Objects panel to show/hide DataArray, Dataset, and
+  DataTree entries.
 
 ## [v0.3.2] - 2026-01-21
 

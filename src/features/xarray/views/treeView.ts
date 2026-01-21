@@ -9,9 +9,28 @@ import { refreshXarrayCache, getCachedXarrayEntries, getPendingRefresh } from '.
 import { getActiveNotebookUri } from '../../../notebook';
 import { logger } from '../../../logger';
 
+const TYPE_FILTER_STORAGE_KEY = 'erlab.xarray.typeFilters';
+const DEFAULT_TYPE_FILTERS: XarrayObjectType[] = ['DataArray', 'Dataset', 'DataTree'];
+
+function isXarrayType(value: unknown): value is XarrayObjectType {
+	return value === 'DataArray' || value === 'Dataset' || value === 'DataTree';
+}
+
+function normalizeTypeFilters(value: unknown): XarrayObjectType[] {
+	if (!Array.isArray(value)) {
+		return DEFAULT_TYPE_FILTERS;
+	}
+	if (value.length === 0) {
+		return [];
+	}
+	const normalized = value.filter(isXarrayType);
+	return normalized.length > 0 ? normalized : DEFAULT_TYPE_FILTERS;
+}
+
 export class XarrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
 	private readonly pinnedStore: PinnedXarrayStore;
 	private readonly onDidAccessNotebook?: (notebookUri: vscode.Uri) => void | Promise<void>;
+	private readonly typeFilterState?: vscode.Memento;
 	private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<vscode.TreeItem | undefined>();
 	private treeView?: vscode.TreeView<vscode.TreeItem>;
 	private itemsByName = new Map<string, XarrayTreeItem>();
@@ -20,20 +39,39 @@ export class XarrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeI
 	private refreshTimer: NodeJS.Timeout | undefined;
 	private executionInProgress = false;
 	private pendingSelection: { variableName: string; focus: boolean } | undefined;
+	private typeFilters: Set<XarrayObjectType>;
 
 	readonly onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
 
 	constructor(
 		pinnedStore: PinnedXarrayStore,
-		options?: { onDidAccessNotebook?: (notebookUri: vscode.Uri) => void | Promise<void> }
+		options?: {
+			onDidAccessNotebook?: (notebookUri: vscode.Uri) => void | Promise<void>;
+			typeFilterState?: vscode.Memento;
+		}
 	) {
 		this.pinnedStore = pinnedStore;
 		this.onDidAccessNotebook = options?.onDidAccessNotebook;
+		this.typeFilterState = options?.typeFilterState;
+		const storedFilters = this.typeFilterState?.get<XarrayObjectType[]>(TYPE_FILTER_STORAGE_KEY);
+		this.typeFilters = new Set(normalizeTypeFilters(storedFilters));
 	}
 
 	setTreeView(view: vscode.TreeView<vscode.TreeItem>): void {
 		this.treeView = view;
 		void this.applyPendingSelection();
+	}
+
+	getTypeFilters(): XarrayObjectType[] {
+		return Array.from(this.typeFilters);
+	}
+
+	async setTypeFilters(filters: Iterable<XarrayObjectType>): Promise<void> {
+		this.typeFilters = new Set(filters);
+		if (this.typeFilterState) {
+			await this.typeFilterState.update(TYPE_FILTER_STORAGE_KEY, Array.from(this.typeFilters));
+		}
+		this.requestRefresh();
 	}
 
 	requestRefresh(): void {
@@ -172,8 +210,27 @@ export class XarrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeI
 			await this.pinnedStore.setPinned(notebookUri, prunedPinned);
 		}
 		const pinnedSet = new Set(prunedPinned);
-		const pinnedEntries = prunedPinned.map((name) => entryMap.get(name)).filter(Boolean) as XarrayEntry[];
-		const unpinnedEntries = entries
+		const visibleEntries = entries.filter((entry) => this.typeFilters.has(entry.type));
+		if (visibleEntries.length === 0) {
+			this.itemsByName.clear();
+			this.lastItems = [
+				new XarrayMessageItem(
+					this.typeFilters.size === 0
+						? 'No xarray types selected. Use the filter button to show objects.'
+						: 'No xarray objects match the current filters.'
+				),
+			];
+			return this.lastItems;
+		}
+		const pinnedEntries = prunedPinned
+			.map((name) => entryMap.get(name))
+			.filter((entry): entry is XarrayEntry => {
+				if (!entry) {
+					return false;
+				}
+				return this.typeFilters.has(entry.type);
+			});
+		const unpinnedEntries = visibleEntries
 			.filter((entry) => !pinnedSet.has(entry.variableName))
 			.sort((a, b) => a.variableName.localeCompare(b.variableName));
 		const ordered = [...pinnedEntries, ...unpinnedEntries];

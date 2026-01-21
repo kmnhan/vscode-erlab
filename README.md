@@ -42,12 +42,13 @@ additional interactive tools appear for `DataArray` variables:
 
 ## Commands
 
-All commands work on the currently selected variable in a Jupyter notebook cell unless
-invoked from the xarray Objects panel.
+- `erlab.openDetail` - Open the xarray Detail panel from the command palette or the
+  Jupyter Variables view.
 
 ### `erlab` specific commands
 
-These commands appear when the kernel has the `erlab` package installed:
+These commands work on the currently selected variable in a Jupyter notebook cell, and
+appear when the kernel has the `erlab` package installed:
 
 - `erlab.watch` - Watch a DataArray (or show it if already watched).
 - `erlab.unwatch` - Stop watching a DataArray.
@@ -59,11 +60,6 @@ These commands appear when the kernel has the `erlab` package installed:
 - `erlab.ftool` - Open the DataArray in ftool (general curve fitting).
 - `erlab.goldtool` - Open the DataArray in goldtool (Fermi edge fitting).
 - `erlab.xarray.otherTools` - Show a picker to select from additional tools.
-
-### xarray commands
-
-- `erlab.openDetail` - Open the xarray Detail panel from the command palette or the
-  Jupyter Variables view.
 
 ## Settings
 
