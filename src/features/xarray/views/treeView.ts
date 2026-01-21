@@ -18,6 +18,7 @@ export class XarrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeI
 	private refreshPending = false;
 	private refreshTimer: NodeJS.Timeout | undefined;
 	private executionInProgress = false;
+	private pendingSelection: { variableName: string; focus: boolean } | undefined;
 
 	readonly onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
 
@@ -27,6 +28,7 @@ export class XarrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeI
 
 	setTreeView(view: vscode.TreeView<vscode.TreeItem>): void {
 		this.treeView = view;
+		void this.applyPendingSelection();
 	}
 
 	requestRefresh(): void {
@@ -67,19 +69,51 @@ export class XarrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeI
 	}
 
 	async reveal(variableName: string): Promise<void> {
+		this.pendingSelection = { variableName, focus: true };
+		await this.revealItem(variableName, true);
+	}
+
+	async select(variableName: string): Promise<void> {
+		this.pendingSelection = { variableName, focus: false };
+		await this.revealItem(variableName, false);
+	}
+
+	private async revealItem(variableName: string, focus: boolean): Promise<void> {
 		const item = this.itemsByName.get(variableName);
 		if (!item || !this.treeView) {
 			return;
 		}
 		try {
-			await this.treeView.reveal(item, { focus: true, select: true, expand: false });
+			await this.treeView.reveal(item, { focus, select: true, expand: false });
+			this.pendingSelection = undefined;
 		} catch {
 			// Ignore reveal failures for stale items.
 		}
 	}
 
+	private async applyPendingSelection(): Promise<void> {
+		if (!this.pendingSelection || !this.treeView || !this.treeView.visible) {
+			return;
+		}
+		const pending = this.pendingSelection;
+		const item = this.itemsByName.get(pending.variableName);
+		if (!item) {
+			return;
+		}
+		this.pendingSelection = undefined;
+		try {
+			await this.treeView.reveal(item, { focus: pending.focus, select: true, expand: false });
+		} catch {
+			this.pendingSelection = pending;
+		}
+	}
+
 	getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
 		return element;
+	}
+
+	getParent(_element: vscode.TreeItem): vscode.TreeItem | undefined {
+		return;
 	}
 
 	async getChildren(): Promise<vscode.TreeItem[]> {
@@ -141,6 +175,7 @@ export class XarrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeI
 			ordered.map((entry) => [entry.variableName, new XarrayTreeItem(entry, notebookUri, pinnedSet.has(entry.variableName))])
 		);
 		this.lastItems = Array.from(this.itemsByName.values());
+		void this.applyPendingSelection();
 		return this.lastItems;
 	}
 }

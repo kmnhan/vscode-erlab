@@ -10,6 +10,7 @@ All notable changes to the extension will be documented in this file.
 - Make xarray list refreshes lightweight and refresh per-variable metadata on demand for
   hovers.
 - Clear the xarray detail panel when the selection is cleared in the xarray Objects view.
+- Select the corresponding row in the xarray Objects view when opening details from a hover.
 
 ## [v0.3.1] - 2026-01-14
 

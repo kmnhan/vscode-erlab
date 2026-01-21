@@ -401,6 +401,10 @@ export function activate(context: vscode.ExtensionContext) {
 				vscode.window.showInformationMessage('erlab: open a notebook to view DataArrays.');
 				return;
 			}
+			const activeNotebook = getActiveNotebookUri();
+			if (activeNotebook && activeNotebook.toString() === notebookUri.toString()) {
+				void xarrayPanelProvider.select(variableName);
+			}
 			await xarrayDetailProvider.showDetail(notebookUri, variableName, normalized?.type);
 		}
 	);
