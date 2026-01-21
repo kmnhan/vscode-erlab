@@ -1,7 +1,7 @@
 {
   "name": "erlab",
   "displayName": "erlab",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "publisher": "khan",
   "description": "Extension for working with xarray objects and the ERLab Python package in Jupyter Notebooks",
   "author": {

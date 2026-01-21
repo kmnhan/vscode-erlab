@@ -2,7 +2,7 @@
 
 All notable changes to the extension will be documented in this file.
 
-## [Unreleased]
+## [v0.3.2] - 2026-01-21
 
 - Add timeouts for kernel output queries with best-effort kernel interrupts and warn on
   slow kernel executions in logs.
