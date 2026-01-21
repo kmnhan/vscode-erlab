@@ -140,6 +140,23 @@ async function getJupyterApi(): Promise<JupyterApi | undefined> {
 }
 
 /**
+ * Get the active kernel for a notebook, if available.
+ */
+export async function getKernelForNotebook(
+	notebookUri: vscode.Uri
+): Promise<KernelLike | undefined> {
+	const jupyterApi = await getJupyterApi();
+	if (!jupyterApi?.kernels || typeof jupyterApi.kernels.getKernel !== 'function') {
+		return;
+	}
+	const kernel = await jupyterApi.kernels.getKernel(notebookUri);
+	if (!kernel || typeof kernel.executeCode !== 'function') {
+		return;
+	}
+	return kernel;
+}
+
+/**
  * Execute code in the Jupyter kernel (with user-facing messages on errors).
  * Returns stdout output as a string.
  */

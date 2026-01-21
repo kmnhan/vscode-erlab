@@ -2,6 +2,11 @@
 
 All notable changes to the extension will be documented in this file.
 
+## [Unreleased]
+
+- Hide ERLab magic actions and ImageTool status bar items when the `erlab` package is
+  not available in the active kernel, while keeping xarray inspection features active.
+
 ## [v0.3.2] - 2026-01-21
 
 - Add timeouts for kernel output queries with best-effort kernel interrupts and warn on

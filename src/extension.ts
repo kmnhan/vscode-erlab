@@ -8,7 +8,13 @@ import * as vscode from 'vscode';
 
 // Infrastructure
 import { initializeLogger, logger } from './logger';
-import { executeInKernel } from './kernel';
+import {
+	executeInKernel,
+	executeInKernelForOutput,
+	extractLastJsonLine,
+	getKernelForNotebook,
+	type KernelLike,
+} from './kernel';
 import { isNotebookCellDocument, getNotebookUriForDocument, getActiveNotebookUri, resolveNotebookUri } from './notebook';
 import { findNotebookDefinitionLocation } from './notebook/definitionSearch';
 import { isValidPythonIdentifier } from './python/identifiers';
@@ -73,10 +79,146 @@ function showMagicOutput(output: string): void {
 	vscode.window.setStatusBarMessage(`erlab: ${message}`, 2500);
 }
 
+const ERLAB_AVAILABLE_CONTEXT = 'erlab.hasErlab';
+// Kernel-scoped availability avoids re-checking erlab in a stable environment.
+const erlabAvailabilityByKernel = new WeakMap<KernelLike, boolean>();
+// Notebook-scoped availability is a fast, synchronous fallback for UI gating and
+// also records the last kernel so we can invalidate on kernel swaps.
+const erlabAvailabilityByNotebook = new Map<string, { available: boolean; kernel?: KernelLike }>();
+// Deduplicate concurrent checks for the same kernel.
+const pendingErlabChecks = new WeakMap<KernelLike, Promise<boolean | undefined>>();
+let currentErlabContext = false;
+
+function getNotebookCacheKey(notebookUri: vscode.Uri): string {
+	return notebookUri.toString();
+}
+
+// Use last-known notebook state for synchronous UI paths (hover/status bar/when contexts).
+function getCachedErlabAvailability(notebookUri: vscode.Uri): boolean | undefined {
+	return erlabAvailabilityByNotebook.get(getNotebookCacheKey(notebookUri))?.available;
+}
+
+function setNotebookErlabAvailability(
+	notebookUri: vscode.Uri,
+	available: boolean,
+	kernel?: KernelLike
+): void {
+	erlabAvailabilityByNotebook.set(getNotebookCacheKey(notebookUri), { available, kernel });
+}
+
+function isErlabAvailable(notebookUri: vscode.Uri | undefined): boolean {
+	if (!notebookUri) {
+		return false;
+	}
+	return getCachedErlabAvailability(notebookUri) ?? false;
+}
+
+async function setErlabContext(value: boolean): Promise<void> {
+	if (currentErlabContext === value) {
+		return;
+	}
+	currentErlabContext = value;
+	await vscode.commands.executeCommand('setContext', ERLAB_AVAILABLE_CONTEXT, value);
+}
+
+// Check erlab availability once per kernel; kernels are stable for a session.
+async function checkErlabAvailability(
+	notebookUri: vscode.Uri,
+	kernel: KernelLike,
+	options?: { force?: boolean }
+): Promise<boolean | undefined> {
+	const cached = erlabAvailabilityByKernel.get(kernel);
+	if (!options?.force && typeof cached === 'boolean') {
+		setNotebookErlabAvailability(notebookUri, cached, kernel);
+		return cached;
+	}
+
+	const pending = pendingErlabChecks.get(kernel);
+	if (pending) {
+		return pending;
+	}
+
+	const promise = (async () => {
+		try {
+			const output = await executeInKernelForOutput(
+				notebookUri,
+				[
+					'import importlib.util',
+					'import json',
+					'print(json.dumps({"erlab": importlib.util.find_spec("erlab") is not None}))',
+				].join('\n'),
+				{
+					operation: 'erlab-check',
+					timeoutMs: 1500,
+					warnAfterMs: 1200,
+					interruptOnTimeout: false,
+				}
+			);
+			const line = extractLastJsonLine(output);
+			if (!line) {
+				throw new Error('Missing erlab availability response.');
+			}
+			const parsed = JSON.parse(line) as { erlab?: boolean };
+			if (typeof parsed?.erlab !== 'boolean') {
+				throw new Error('Invalid erlab availability response.');
+			}
+			const available = parsed.erlab;
+			erlabAvailabilityByKernel.set(kernel, available);
+			setNotebookErlabAvailability(notebookUri, available, kernel);
+			return available;
+		} catch (error) {
+			logger.debug(`Erlab availability check failed: ${error instanceof Error ? error.message : String(error)}`);
+			return;
+		} finally {
+			pendingErlabChecks.delete(kernel);
+		}
+	})();
+	pendingErlabChecks.set(kernel, promise);
+	return promise;
+}
+
+// Keep the context key in sync with the active notebook's kernel.
+// If a notebook switches kernels, we pessimistically clear state and re-check.
+async function updateErlabContextForNotebook(
+	notebookUri: vscode.Uri | undefined,
+	options?: { force?: boolean }
+): Promise<void> {
+	if (!notebookUri) {
+		await setErlabContext(false);
+		return;
+	}
+	const kernel = await getKernelForNotebook(notebookUri);
+	if (!kernel) {
+		setNotebookErlabAvailability(notebookUri, false);
+		await setErlabContext(false);
+		return;
+	}
+
+	const cachedNotebook = erlabAvailabilityByNotebook.get(getNotebookCacheKey(notebookUri));
+	if (cachedNotebook?.kernel === kernel) {
+		await setErlabContext(cachedNotebook.available);
+	} else {
+		const cachedKernel = erlabAvailabilityByKernel.get(kernel);
+		if (!options?.force && typeof cachedKernel === 'boolean') {
+			setNotebookErlabAvailability(notebookUri, cachedKernel, kernel);
+			await setErlabContext(cachedKernel);
+			return;
+		}
+		setNotebookErlabAvailability(notebookUri, false, kernel);
+		await setErlabContext(false);
+	}
+
+	const available = await checkErlabAvailability(notebookUri, kernel, options);
+	if (typeof available === 'boolean') {
+		await setErlabContext(available);
+	}
+}
+
 // This method is called when your extension is activated
 export function activate(context: vscode.ExtensionContext) {
 	initializeLogger(context);
-	logger.info('ERLab extension activated');
+	logger.info('Erlab extension activated');
+	void setErlabContext(false);
 
 	// ─────────────────────────────────────────────────────────────────────────
 	// Magic command registration helper
@@ -103,6 +245,16 @@ export function activate(context: vscode.ExtensionContext) {
 
 			await vscode.commands.executeCommand('editor.action.hideHover');
 			const notebookUri = getNotebookUriForDocument(editor.document);
+			if (!notebookUri) {
+				vscode.window.showInformationMessage('erlab: open a notebook to run the magic.');
+				return;
+			}
+			await updateErlabContextForNotebook(notebookUri);
+			const cachedAvailability = getCachedErlabAvailability(notebookUri);
+			if (cachedAvailability === false) {
+				vscode.window.showInformationMessage('erlab: erlab is not available in this kernel.');
+				return;
+			}
 			const code = buildMagicCode
 				? buildMagicCode(variableName)
 				: buildMagicInvocation(magicName, buildArgs(variableName));
@@ -121,7 +273,9 @@ export function activate(context: vscode.ExtensionContext) {
 	// Core services
 	// ─────────────────────────────────────────────────────────────────────────
 	const pinnedStore = new PinnedXarrayStore(context.globalState);
-	const xarrayPanelProvider = new XarrayPanelProvider(pinnedStore);
+	const xarrayPanelProvider = new XarrayPanelProvider(pinnedStore, {
+		onDidAccessNotebook: (notebookUri) => updateErlabContextForNotebook(notebookUri),
+	});
 	const xarrayTreeView = vscode.window.createTreeView('erlabXarrayObjects', {
 		treeDataProvider: xarrayPanelProvider,
 		showCollapseAll: false,
@@ -135,11 +289,12 @@ export function activate(context: vscode.ExtensionContext) {
 	const requestXarrayRefresh = async (
 		options?: { refreshCache?: boolean; notebookUri?: vscode.Uri }
 	): Promise<void> => {
+		const notebookUri = options?.notebookUri ?? getActiveNotebookUri();
 		if (options?.refreshCache) {
-			const notebookUri = options.notebookUri ?? getActiveNotebookUri();
 			if (notebookUri) {
 				await refreshXarrayCache(notebookUri);
 			}
+			await updateErlabContextForNotebook(notebookUri);
 		}
 		xarrayPanelProvider.requestRefresh();
 	};
@@ -156,6 +311,7 @@ export function activate(context: vscode.ExtensionContext) {
 	const activeNotebook = getActiveNotebookUri();
 	if (activeNotebook) {
 		void refreshXarrayCache(activeNotebook);
+		void updateErlabContextForNotebook(activeNotebook);
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────
@@ -255,7 +411,9 @@ export function activate(context: vscode.ExtensionContext) {
 	// ─────────────────────────────────────────────────────────────────────────
 	// Hover provider
 	// ─────────────────────────────────────────────────────────────────────────
-	const hoverDisposable = registerXarrayHoverProvider(pinnedStore);
+	const hoverDisposable = registerXarrayHoverProvider(pinnedStore, {
+		isErlabAvailable,
+	});
 
 	// ─────────────────────────────────────────────────────────────────────────
 	// Selection and context tracking
@@ -302,6 +460,7 @@ export function activate(context: vscode.ExtensionContext) {
 			await requestXarrayRefresh({ refreshCache: true, notebookUri: editor.notebook.uri });
 			return;
 		}
+		await updateErlabContextForNotebook(undefined);
 		void requestXarrayRefresh();
 	});
 
@@ -328,6 +487,7 @@ export function activate(context: vscode.ExtensionContext) {
 			xarrayDetailProvider.setExecutionInProgress(false);
 			// Refresh cache when cell execution completes (debounced + coalesced)
 			void refreshXarrayCache(activeNotebook).then(() => requestXarrayRefresh());
+			void updateErlabContextForNotebook(activeNotebook);
 		}
 	});
 
@@ -353,6 +513,9 @@ export function activate(context: vscode.ExtensionContext) {
 				// Use synchronous cache lookup - no kernel query
 				const notebookUri = getNotebookUriForDocument(cell.document);
 				if (!notebookUri) {
+					return [];
+				}
+				if (!isErlabAvailable(notebookUri)) {
 					return [];
 				}
 				const entry = getCachedXarrayEntry(notebookUri, variableName);

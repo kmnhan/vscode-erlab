@@ -18,7 +18,8 @@ import type { PinnedXarrayStore } from '../xarray/views/pinnedStore';
  * Register the xarray hover provider.
  */
 export function registerXarrayHoverProvider(
-	pinnedStore: PinnedXarrayStore
+	pinnedStore: PinnedXarrayStore,
+	options?: { isErlabAvailable?: (notebookUri: vscode.Uri) => boolean }
 ): vscode.Disposable {
 	return vscode.languages.registerHoverProvider({ language: 'python' }, {
 		provideHover: async (document: vscode.TextDocument, position: vscode.Position): Promise<vscode.Hover | undefined> => {
@@ -60,6 +61,7 @@ export function registerXarrayHoverProvider(
 				return;
 			}
 
+			const erlabAvailable = options?.isErlabAvailable?.(notebookUri) ?? true;
 			const md = new vscode.MarkdownString();
 			md.supportThemeIcons = true;
 			const label = formatXarrayLabel(info, variableName);
@@ -73,24 +75,31 @@ export function registerXarrayHoverProvider(
 				type: info.type,
 			});
 
-			// DataArray: show all actions including watch and ImageTool
+			// DataArray: show all actions including watch and ImageTool when ERLab is available.
 			if (info.type === 'DataArray') {
-				if (info.watched) {
-					md.appendMarkdown(
-						`[$(list-flat) Details](command:erlab.xarray.openDetail?${hoverArgs}) | ` +
-						`[$(eye) Show](command:erlab.watch?${encodeCommandArgs({ variableName })}) | ` +
-						`[$(eye-closed) Unwatch](command:erlab.unwatch?${encodeCommandArgs({ variableName })}) | ` +
-						`[$(empty-window) ImageTool](command:erlab.xarray.openInImageTool?${hoverArgs}) | ` +
-						`[$(pin) ${isPinned ? 'Unpin' : 'Pin'}](command:erlab.xarray.togglePin?${encodeCommandArgs({ variableName, reveal: !isPinned })}) | ` +
-						`[$(ellipsis) More...](command:erlab.xarray.otherTools?${encodeCommandArgs({ variableName })})\n`
-					);
+				if (erlabAvailable) {
+					if (info.watched) {
+						md.appendMarkdown(
+							`[$(list-flat) Details](command:erlab.xarray.openDetail?${hoverArgs}) | ` +
+							`[$(eye) Show](command:erlab.watch?${encodeCommandArgs({ variableName })}) | ` +
+							`[$(eye-closed) Unwatch](command:erlab.unwatch?${encodeCommandArgs({ variableName })}) | ` +
+							`[$(empty-window) ImageTool](command:erlab.xarray.openInImageTool?${hoverArgs}) | ` +
+							`[$(pin) ${isPinned ? 'Unpin' : 'Pin'}](command:erlab.xarray.togglePin?${encodeCommandArgs({ variableName, reveal: !isPinned })}) | ` +
+							`[$(ellipsis) More...](command:erlab.xarray.otherTools?${encodeCommandArgs({ variableName })})\n`
+						);
+					} else {
+						md.appendMarkdown(
+							`[$(list-flat) Details](command:erlab.xarray.openDetail?${hoverArgs}) | ` +
+							`[$(eye) Watch](command:erlab.watch?${encodeCommandArgs({ variableName })}) | ` +
+							`[$(empty-window) ImageTool](command:erlab.xarray.openInImageTool?${hoverArgs}) | ` +
+							`[$(pin) ${isPinned ? 'Unpin' : 'Pin'}](command:erlab.xarray.togglePin?${encodeCommandArgs({ variableName, reveal: !isPinned })}) | ` +
+							`[$(ellipsis) More...](command:erlab.xarray.otherTools?${encodeCommandArgs({ variableName })})\n`
+						);
+					}
 				} else {
 					md.appendMarkdown(
 						`[$(list-flat) Details](command:erlab.xarray.openDetail?${hoverArgs}) | ` +
-						`[$(eye) Watch](command:erlab.watch?${encodeCommandArgs({ variableName })}) | ` +
-						`[$(empty-window) ImageTool](command:erlab.xarray.openInImageTool?${hoverArgs}) | ` +
-						`[$(pin) ${isPinned ? 'Unpin' : 'Pin'}](command:erlab.xarray.togglePin?${encodeCommandArgs({ variableName, reveal: !isPinned })}) | ` +
-						`[$(ellipsis) More...](command:erlab.xarray.otherTools?${encodeCommandArgs({ variableName })})\n`
+						`[$(pin) ${isPinned ? 'Unpin' : 'Pin'}](command:erlab.xarray.togglePin?${encodeCommandArgs({ variableName, reveal: !isPinned })})\n\n`
 					);
 				}
 			} else {

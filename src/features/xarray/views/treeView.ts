@@ -11,6 +11,7 @@ import { logger } from '../../../logger';
 
 export class XarrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
 	private readonly pinnedStore: PinnedXarrayStore;
+	private readonly onDidAccessNotebook?: (notebookUri: vscode.Uri) => void | Promise<void>;
 	private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<vscode.TreeItem | undefined>();
 	private treeView?: vscode.TreeView<vscode.TreeItem>;
 	private itemsByName = new Map<string, XarrayTreeItem>();
@@ -22,8 +23,12 @@ export class XarrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeI
 
 	readonly onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
 
-	constructor(pinnedStore: PinnedXarrayStore) {
+	constructor(
+		pinnedStore: PinnedXarrayStore,
+		options?: { onDidAccessNotebook?: (notebookUri: vscode.Uri) => void | Promise<void> }
+	) {
 		this.pinnedStore = pinnedStore;
+		this.onDidAccessNotebook = options?.onDidAccessNotebook;
 	}
 
 	setTreeView(view: vscode.TreeView<vscode.TreeItem>): void {
@@ -129,6 +134,7 @@ export class XarrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeI
 			this.lastItems = [new XarrayMessageItem('Open a notebook to see xarray objects.')];
 			return this.lastItems;
 		}
+		void this.onDidAccessNotebook?.(notebookUri);
 		// Try to get cached entries first
 		let entries = getCachedXarrayEntries(notebookUri);
 		if (entries.length === 0) {
