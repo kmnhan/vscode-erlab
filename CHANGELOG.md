@@ -2,7 +2,7 @@
 
 All notable changes to the extension will be documented in this file.
 
-## [Unreleased]
+## [v0.4.1] - 2026-02-01
 
 - Add a queue timeout for kernel output executions so a kernel that never starts running
   the requested code no longer hangs indefinitely.
