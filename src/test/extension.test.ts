@@ -12,6 +12,11 @@ import { execFile, spawn, type ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import * as vscode from 'vscode';
 import { buildXarrayQueryCode } from '../features/xarray/pythonSnippets';
+import { __clearXarrayCacheForTests, __setXarrayCacheForTests } from '../features/xarray/service';
+import { getNotebookUriForDocument, resolveNotebookUri } from '../notebook/notebookUris';
+import type { XarrayEntry } from '../features/xarray/types';
+import { XarrayPanelProvider } from '../features/xarray/views/treeView';
+import { PinnedXarrayStore } from '../features/xarray/views/pinnedStore';
 
 const execFileAsync = promisify(execFile);
 
@@ -141,6 +146,192 @@ suite('Extension Integration Tests', () => {
 		// We can't directly check context keys, but we can verify the extension
 		// didn't crash when processing selection changes
 		assert.ok(editor.document.uri, 'Editor should still be active');
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Notebook API Integration Tests (VS Code notebook APIs)
+// These tests use cached data and do not require kernel selection.
+// ─────────────────────────────────────────────────────────────────────────────
+
+suite('Notebook Integration Tests', function () {
+	this.timeout(20_000);
+
+	const jupyterExtensionId = 'ms-toolsai.jupyter';
+	let notebook: vscode.NotebookDocument | undefined;
+	let tempDir: string | undefined;
+
+	class MemoryMemento implements vscode.Memento {
+		private readonly store = new Map<string, unknown>();
+		keys(): readonly string[] {
+			return Array.from(this.store.keys());
+		}
+
+		get<T>(key: string, defaultValue?: T): T {
+			if (this.store.has(key)) {
+				return this.store.get(key) as T;
+			}
+			return defaultValue as T;
+		}
+
+		async update(key: string, value: unknown): Promise<void> {
+			this.store.set(key, value);
+		}
+	}
+
+	async function ensureJupyterExtension(): Promise<void> {
+		const jupyterExtension = vscode.extensions.getExtension(jupyterExtensionId);
+		if (!jupyterExtension) {
+			throw new Error('Jupyter extension not available in test host.');
+		}
+		if (!jupyterExtension.isActive) {
+			await jupyterExtension.activate();
+		}
+	}
+
+	function buildNotebookJson(content: string): string {
+		const lines = content.split('\n').map((line) => `${line}\n`);
+		const notebookData = {
+			cells: [
+				{
+					cell_type: 'code',
+					execution_count: null,
+					metadata: {},
+					outputs: [],
+					source: lines,
+				},
+			],
+			metadata: {
+				kernelspec: {
+					name: 'python3',
+					display_name: 'Python 3',
+					language: 'python',
+				},
+				language_info: { name: 'python' },
+			},
+			nbformat: 4,
+			nbformat_minor: 5,
+		};
+		return JSON.stringify(notebookData);
+	}
+
+	async function createNotebook(content: string): Promise<vscode.NotebookDocument> {
+		await ensureJupyterExtension();
+		tempDir = tempDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'erlab-notebook-'));
+		const filePath = path.join(tempDir, `test-${Date.now()}.ipynb`);
+		await fs.promises.writeFile(filePath, buildNotebookJson(content), 'utf8');
+		const uri = vscode.Uri.file(filePath);
+		const doc = await vscode.workspace.openNotebookDocument(uri);
+		await vscode.window.showNotebookDocument(doc);
+		return doc;
+	}
+
+	test('Notebook cell documents are resolved to their notebook URI', async function () {
+		await activateExtension();
+
+		try {
+			notebook = await createNotebook('data = 1');
+		} catch (error) {
+			this.skip();
+		}
+
+		const cellDocument = notebook.getCells()[0].document;
+		const notebookUri = getNotebookUriForDocument(cellDocument);
+		assert.ok(notebookUri, 'Expected notebook URI for cell document');
+		assert.strictEqual(notebookUri?.toString(), notebook.uri.toString(), 'Notebook URI should match');
+
+		const resolved = resolveNotebookUri(cellDocument.uri.toString());
+		assert.ok(resolved, 'Expected resolved notebook URI from cell URI');
+		assert.strictEqual(resolved?.toString(), notebook.uri.toString(), 'Resolved URI should match notebook');
+	});
+
+	test('Hover provider returns actions in notebook cells for cached DataArray', async function () {
+		await activateExtension();
+
+		try {
+			notebook = await createNotebook('da');
+		} catch (error) {
+			this.skip();
+		}
+
+		const notebookUri = notebook.uri;
+		const entry: XarrayEntry = {
+			variableName: 'da',
+			type: 'DataArray',
+			name: 'da',
+			dims: ['x'],
+			sizes: { x: 10 },
+			shape: [10],
+			dtype: 'float64',
+			ndim: 1,
+			watched: false,
+		};
+		__setXarrayCacheForTests(notebookUri, [entry], { hasDetails: true });
+
+		const cellDocument = notebook.getCells()[0].document;
+		const position = new vscode.Position(0, 1);
+		const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
+			'vscode.executeHoverProvider',
+			cellDocument.uri,
+			position
+		);
+
+		const hoverText = (hovers ?? [])
+			.flatMap((hover) => hover.contents)
+			.map((content) => contentToString(content))
+			.join('\n');
+
+		assert.ok(/\bDataArray\b/.test(hoverText), 'Expected DataArray header in hover');
+		assert.ok(/command:erlab\.xarray\.openDetail/.test(hoverText), 'Expected Details action in hover');
+		assert.ok(/command:erlab\.xarray\.togglePin/.test(hoverText), 'Expected Pin action in hover');
+		// erlab-specific commands may or may not appear depending on context
+		// we just verify the core functionality works
+
+		__clearXarrayCacheForTests(notebookUri);
+	});
+
+	test('Tree view populates items from cached xarray entries', async function () {
+		await activateExtension();
+
+		try {
+			notebook = await createNotebook('tree_da');
+		} catch (error) {
+			this.skip();
+		}
+		const notebookUri = notebook.uri;
+
+		const entry: XarrayEntry = {
+			variableName: 'tree_da',
+			type: 'DataArray',
+			name: 'tree_da',
+			dims: ['x'],
+			sizes: { x: 3 },
+			shape: [3],
+			dtype: 'float64',
+			ndim: 1,
+			watched: true,
+		};
+		__setXarrayCacheForTests(notebookUri, [entry], { hasDetails: true });
+
+		const pinnedStore = new PinnedXarrayStore(new MemoryMemento());
+		await pinnedStore.pin(notebookUri, 'tree_da');
+
+		const provider = new XarrayPanelProvider(pinnedStore);
+		const items = await provider.getChildren();
+		assert.strictEqual(items.length, 1, 'Expected one tree item');
+		const item = items[0] as vscode.TreeItem;
+		assert.strictEqual(item.label, 'tree_da');
+		assert.ok(typeof item.contextValue === 'string' && item.contextValue.includes('Pinned'), 'Expected pinned context');
+		assert.ok(typeof item.description === 'string' && item.description.includes('x:'), 'Expected dims description');
+
+		__clearXarrayCacheForTests(notebookUri);
+	});
+
+	suiteTeardown(async () => {
+		if (tempDir) {
+			await fs.promises.rm(tempDir, { recursive: true, force: true });
+			tempDir = undefined;
+		}
 	});
 });
 
@@ -394,3 +585,5 @@ suite('E2E Tests (Python/Jupyter)', function () {
 		assert.strictEqual(secondA?.watched, false, 'Expected a to be unwatched after unwatch');
 	});
 });
+
+// ─────────────────────────────────────────────────────────────────────────────

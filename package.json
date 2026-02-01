@@ -342,10 +342,11 @@
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
     "test": "vscode-test",
+    "test:with-jupyter": "vscode-test --install-extensions ms-toolsai.jupyter --install-extensions ms-python.python",
     "test:unit": "npm run compile && mocha --ui tdd out/test/unit/**/*.test.js",
     "test:e2e": "ERLAB_E2E=1 npm run test",
     "test:e2e:setup": "uv venv .venv-e2e --python 3.13 && uv pip install -r requirements-e2e.txt -p .venv-e2e",
-    "test:e2e:cached": "ERLAB_E2E=1 ERLAB_E2E_VENV=.venv-e2e npm run test",
+    "test:e2e:cached": "ERLAB_E2E=1 ERLAB_E2E_VENV=.venv-e2e npm run test:with-jupyter",
     "version": "node scripts/update-changelog.js && git add CHANGELOG.md",
     "postversion": "vsce package"
   },
@@ -357,6 +358,7 @@
     "@vscode/test-electron": "^2.5.2",
     "eslint": "^9.39.2",
     "mocha": "^10.8.2",
+    "ts-mockito": "^2.6.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.52.0"
   },

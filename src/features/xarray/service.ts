@@ -407,6 +407,38 @@ export function getPendingRefresh(
 }
 
 /**
+ * Test-only helper to seed the cache without a kernel.
+ */
+export function __setXarrayCacheForTests(
+	notebookUri: vscode.Uri,
+	entries: XarrayEntry[],
+	options?: { updatedAt?: number; hasDetails?: boolean }
+): void {
+	const cacheKey = getNotebookCacheKey(notebookUri);
+	const updatedAt = options?.updatedAt ?? Date.now();
+	const notebookCache = new Map<string, XarrayEntry>();
+	const notebookMeta = new Map<string, { updatedAt: number; hasDetails: boolean }>();
+	const hasDetails = options?.hasDetails ?? true;
+	for (const entry of entries) {
+		notebookCache.set(entry.variableName, entry);
+		notebookMeta.set(entry.variableName, { updatedAt, hasDetails: entry.type === 'DataArray' ? hasDetails : false });
+	}
+	xarrayCache.set(cacheKey, notebookCache);
+	xarrayCacheMeta.set(cacheKey, notebookMeta);
+	listCacheState.set(cacheKey, { updatedAt });
+}
+
+/**
+ * Test-only helper to clear the cache.
+ */
+export function __clearXarrayCacheForTests(notebookUri: vscode.Uri): void {
+	const cacheKey = getNotebookCacheKey(notebookUri);
+	xarrayCache.delete(cacheKey);
+	xarrayCacheMeta.delete(cacheKey);
+	listCacheState.delete(cacheKey);
+}
+
+/**
  * Invalidate the cache for a specific variable (e.g., after watch/unwatch).
  */
 export function invalidateXarrayCacheEntry(
