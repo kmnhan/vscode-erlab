@@ -78,7 +78,6 @@ The test suite has multiple tiers to balance speed vs coverage:
 | Unit | `src/test/unit/` | No | No | Pure function testing |
 | Integration | `extension.test.ts` | Yes | No | VS Code API testing with cache |
 | E2E (Python) | `extension.test.ts` | No | Subprocess | Python/erlab package testing |
-| Kernel Smoke | `extension.test.ts` | Yes | Yes | Real kernel API testing |
 
 ### Unit Tests
 
@@ -114,8 +113,8 @@ Gated behind `ERLAB_E2E=1` environment variable. Require Python with `erlab`, `p
 **Local development with caching:**
 
 ```bash
-npm run test:e2e:setup    # One-time: create .venv-e2e/ with uv
-npm run test:e2e:cached   # Use cached venv for fast iteration
+npm run test:e2e:setup    # One-time: create .venv-e2e/ with uv and register kernel
+npm run test:e2e:cached   # Use cached venv for fast iteration (includes Jupyter extension)
 ```
 
 **Without caching:**
@@ -123,16 +122,6 @@ npm run test:e2e:cached   # Use cached venv for fast iteration
 ```bash
 npm run test:e2e          # Creates temp venv each time (slow)
 ```
-
-### Kernel Smoke Tests
-
-Also gated behind `ERLAB_E2E=1`. These tests verify real kernel API integration:
-
-- Kernel discovery via Jupyter extension API
-- Code execution through `executeInKernelForOutput()`
-- xarray query code execution
-
-**Note:** Kernel smoke tests use polling with exponential backoff (up to 90 seconds) to wait for kernel availability. They will skip gracefully if no kernel becomes available, as this can happen in some CI environments.
 
 ### Mock Utilities
 
@@ -156,7 +145,7 @@ Kernel selection in VS Code is **asynchronous and unpredictable**:
 - Kernel discovery happens asynchronously after notebook opens
 - Race conditions make kernel-dependent tests flaky
 
-**Solution:** Use cache injection for fast, reliable integration tests. Reserve real kernel tests for E2E smoke tests that can tolerate longer timeouts and graceful skipping.
+**Solution:** Use cache injection for fast, reliable integration tests. The E2E Python subprocess tests provide coverage for actual kernel functionality without the fragility of VS Code kernel selection.
 
 ## Environment Variables
 
