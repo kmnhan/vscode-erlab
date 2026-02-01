@@ -44,8 +44,12 @@ src/
 ├── python/               # Python code generation
 │   └── identifiers.ts    # Python identifier validation
 └── test/
-    ├── extension.test.ts # Integration + E2E tests (VS Code required)
+    ├── extension.test.ts # Integration + E2E + kernel smoke tests
+    ├── mocks/            # Test mocks (VS Code-independent)
+    │   └── kernelMock.ts # Mock kernel utilities for unit tests
     └── unit/             # Pure unit tests (no VS Code)
+        ├── jupyterApiContract.test.ts # API contract tests
+        └── kernelMock.test.ts         # Mock infrastructure tests
 ```
 
 If you change the layout or add new files, update this Project Structure section.
@@ -65,6 +69,17 @@ npm run test:e2e:cached  # Run E2E tests using cached venv
 
 ## Testing
 
+### Test Architecture
+
+The test suite has multiple tiers to balance speed vs coverage:
+
+| Tier | Location | VS Code Required | Kernel Required | When to Use |
+| ---- | -------- | ---------------- | --------------- | ----------- |
+| Unit | `src/test/unit/` | No | No | Pure function testing |
+| Integration | `extension.test.ts` | Yes | No | VS Code API testing with cache |
+| E2E (Python) | `extension.test.ts` | No | Subprocess | Python/erlab package testing |
+| Kernel Smoke | `extension.test.ts` | Yes | Yes | Real kernel API testing |
+
 ### Unit Tests
 
 Located in `src/test/unit/`. These test pure functions without VS Code dependencies:
@@ -74,16 +89,21 @@ Located in `src/test/unit/`. These test pure functions without VS Code dependenc
 - `kernelParsing.test.ts` - Kernel response parsing
 - `commandArgs.test.ts` - Command argument parsing
 - `magicInvocation.test.ts` - Magic command generation
+- `jupyterApiContract.test.ts` - Jupyter API type structure verification
+- `kernelMock.test.ts` - Mock infrastructure validation
 
 Run with: `npm run test:unit`
 
 ### Integration Tests
 
-Located in `src/test/extension.test.ts`. These require VS Code test infrastructure:
+Located in `src/test/extension.test.ts`. These require VS Code test infrastructure but **avoid real kernel connections** by using cache injection:
 
 - Extension activation
 - Command registration
-- Hover provider behavior
+- Hover provider behavior with cached data
+- Tree view with cached entries
+
+**Important:** Integration tests use `__setXarrayCacheForTests()` and `__clearXarrayCacheForTests()` from `service.ts` to seed test data without kernel dependencies. This avoids the inherently unreliable kernel selection in VS Code tests.
 
 Run with: `npm run test`
 
@@ -104,6 +124,40 @@ npm run test:e2e:cached   # Use cached venv for fast iteration
 npm run test:e2e          # Creates temp venv each time (slow)
 ```
 
+### Kernel Smoke Tests
+
+Also gated behind `ERLAB_E2E=1`. These tests verify real kernel API integration:
+
+- Kernel discovery via Jupyter extension API
+- Code execution through `executeInKernelForOutput()`
+- xarray query code execution
+
+**Note:** Kernel smoke tests use polling with exponential backoff (up to 90 seconds) to wait for kernel availability. They will skip gracefully if no kernel becomes available, as this can happen in some CI environments.
+
+### Mock Utilities
+
+Located in `src/test/mocks/kernelMock.ts`. These are **VS Code-independent** and can be used in unit tests:
+
+```typescript
+import { createMockKernel, createMockKernelWithResponse } from '../mocks/kernelMock';
+
+// Map specific code to responses
+const kernel = createMockKernel(new Map([['print("hi")', 'hi\n']]));
+
+// Fixed response for any code
+const kernel = createMockKernelWithResponse('{"result": 42}');
+```
+
+### Why Cache-Based Testing?
+
+Kernel selection in VS Code is **asynchronous and unpredictable**:
+
+- `notebook.selectKernel` command is designed for UI interaction, not programmatic use
+- Kernel discovery happens asynchronously after notebook opens
+- Race conditions make kernel-dependent tests flaky
+
+**Solution:** Use cache injection for fast, reliable integration tests. Reserve real kernel tests for E2E smoke tests that can tolerate longer timeouts and graceful skipping.
+
 ## Environment Variables
 
 | Variable | Purpose |
@@ -114,7 +168,7 @@ npm run test:e2e          # Creates temp venv each time (slow)
 
 ## CI/CD
 
-- **CI workflow** (`.github/workflows/ci.yaml`): Runs on push/PR, uses uv for cached Python deps
+- **CI workflow** (`.github/workflows/ci.yaml`): Runs on push/PR, uses uv for cached Python deps. Tests against both VS Code Stable and Insiders (Insiders failures don't block PRs).
 - **Release workflow** (`.github/workflows/release.yaml`): Publishes to VS Code Marketplace, Open VSX, and GitHub Releases on new tag
 
 ## Extension Dependencies

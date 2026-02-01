@@ -8,6 +8,9 @@ All notable changes to the extension will be documented in this file.
   the requested code no longer hangs indefinitely.
 - Increase the xarray cache refresh debounce to 300ms to reduce rapid refresh churn when
   switching notebooks.
+- Add kernel smoke tests that verify real Jupyter kernel integration end-to-end.
+- Add CI matrix testing against VS Code Insiders to catch API changes early.
+- Add Jupyter API contract tests to detect breaking changes in kernel type structures.
 
 ## [v0.4.0] - 2026-01-21
 

@@ -12,6 +12,11 @@ import { execFile, spawn, type ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import * as vscode from 'vscode';
 import { buildXarrayQueryCode } from '../features/xarray/pythonSnippets';
+import { __clearXarrayCacheForTests, __setXarrayCacheForTests } from '../features/xarray/service';
+import { getNotebookUriForDocument, resolveNotebookUri } from '../notebook/notebookUris';
+import type { XarrayEntry } from '../features/xarray/types';
+import { XarrayPanelProvider } from '../features/xarray/views/treeView';
+import { PinnedXarrayStore } from '../features/xarray/views/pinnedStore';
 
 const execFileAsync = promisify(execFile);
 
@@ -141,6 +146,192 @@ suite('Extension Integration Tests', () => {
 		// We can't directly check context keys, but we can verify the extension
 		// didn't crash when processing selection changes
 		assert.ok(editor.document.uri, 'Editor should still be active');
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Notebook API Integration Tests (VS Code notebook APIs)
+// These tests use cached data and do not require kernel selection.
+// ─────────────────────────────────────────────────────────────────────────────
+
+suite('Notebook Integration Tests', function () {
+	this.timeout(20_000);
+
+	const jupyterExtensionId = 'ms-toolsai.jupyter';
+	let notebook: vscode.NotebookDocument | undefined;
+	let tempDir: string | undefined;
+
+	class MemoryMemento implements vscode.Memento {
+		private readonly store = new Map<string, unknown>();
+		keys(): readonly string[] {
+			return Array.from(this.store.keys());
+		}
+
+		get<T>(key: string, defaultValue?: T): T {
+			if (this.store.has(key)) {
+				return this.store.get(key) as T;
+			}
+			return defaultValue as T;
+		}
+
+		async update(key: string, value: unknown): Promise<void> {
+			this.store.set(key, value);
+		}
+	}
+
+	async function ensureJupyterExtension(): Promise<void> {
+		const jupyterExtension = vscode.extensions.getExtension(jupyterExtensionId);
+		if (!jupyterExtension) {
+			throw new Error('Jupyter extension not available in test host.');
+		}
+		if (!jupyterExtension.isActive) {
+			await jupyterExtension.activate();
+		}
+	}
+
+	function buildNotebookJson(content: string): string {
+		const lines = content.split('\n').map((line) => `${line}\n`);
+		const notebookData = {
+			cells: [
+				{
+					cell_type: 'code',
+					execution_count: null,
+					metadata: {},
+					outputs: [],
+					source: lines,
+				},
+			],
+			metadata: {
+				kernelspec: {
+					name: 'python3',
+					display_name: 'Python 3',
+					language: 'python',
+				},
+				language_info: { name: 'python' },
+			},
+			nbformat: 4,
+			nbformat_minor: 5,
+		};
+		return JSON.stringify(notebookData);
+	}
+
+	async function createNotebook(content: string): Promise<vscode.NotebookDocument> {
+		await ensureJupyterExtension();
+		tempDir = tempDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'erlab-notebook-'));
+		const filePath = path.join(tempDir, `test-${Date.now()}.ipynb`);
+		await fs.promises.writeFile(filePath, buildNotebookJson(content), 'utf8');
+		const uri = vscode.Uri.file(filePath);
+		const doc = await vscode.workspace.openNotebookDocument(uri);
+		await vscode.window.showNotebookDocument(doc);
+		return doc;
+	}
+
+	test('Notebook cell documents are resolved to their notebook URI', async function () {
+		await activateExtension();
+
+		try {
+			notebook = await createNotebook('data = 1');
+		} catch (error) {
+			this.skip();
+		}
+
+		const cellDocument = notebook.getCells()[0].document;
+		const notebookUri = getNotebookUriForDocument(cellDocument);
+		assert.ok(notebookUri, 'Expected notebook URI for cell document');
+		assert.strictEqual(notebookUri?.toString(), notebook.uri.toString(), 'Notebook URI should match');
+
+		const resolved = resolveNotebookUri(cellDocument.uri.toString());
+		assert.ok(resolved, 'Expected resolved notebook URI from cell URI');
+		assert.strictEqual(resolved?.toString(), notebook.uri.toString(), 'Resolved URI should match notebook');
+	});
+
+	test('Hover provider returns actions in notebook cells for cached DataArray', async function () {
+		await activateExtension();
+
+		try {
+			notebook = await createNotebook('da');
+		} catch (error) {
+			this.skip();
+		}
+
+		const notebookUri = notebook.uri;
+		const entry: XarrayEntry = {
+			variableName: 'da',
+			type: 'DataArray',
+			name: 'da',
+			dims: ['x'],
+			sizes: { x: 10 },
+			shape: [10],
+			dtype: 'float64',
+			ndim: 1,
+			watched: false,
+		};
+		__setXarrayCacheForTests(notebookUri, [entry], { hasDetails: true });
+
+		const cellDocument = notebook.getCells()[0].document;
+		const position = new vscode.Position(0, 1);
+		const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
+			'vscode.executeHoverProvider',
+			cellDocument.uri,
+			position
+		);
+
+		const hoverText = (hovers ?? [])
+			.flatMap((hover) => hover.contents)
+			.map((content) => contentToString(content))
+			.join('\n');
+
+		assert.ok(/\bDataArray\b/.test(hoverText), 'Expected DataArray header in hover');
+		assert.ok(/command:erlab\.xarray\.openDetail/.test(hoverText), 'Expected Details action in hover');
+		assert.ok(/command:erlab\.xarray\.togglePin/.test(hoverText), 'Expected Pin action in hover');
+		// erlab-specific commands may or may not appear depending on context
+		// we just verify the core functionality works
+
+		__clearXarrayCacheForTests(notebookUri);
+	});
+
+	test('Tree view populates items from cached xarray entries', async function () {
+		await activateExtension();
+
+		try {
+			notebook = await createNotebook('tree_da');
+		} catch (error) {
+			this.skip();
+		}
+		const notebookUri = notebook.uri;
+
+		const entry: XarrayEntry = {
+			variableName: 'tree_da',
+			type: 'DataArray',
+			name: 'tree_da',
+			dims: ['x'],
+			sizes: { x: 3 },
+			shape: [3],
+			dtype: 'float64',
+			ndim: 1,
+			watched: true,
+		};
+		__setXarrayCacheForTests(notebookUri, [entry], { hasDetails: true });
+
+		const pinnedStore = new PinnedXarrayStore(new MemoryMemento());
+		await pinnedStore.pin(notebookUri, 'tree_da');
+
+		const provider = new XarrayPanelProvider(pinnedStore);
+		const items = await provider.getChildren();
+		assert.strictEqual(items.length, 1, 'Expected one tree item');
+		const item = items[0] as vscode.TreeItem;
+		assert.strictEqual(item.label, 'tree_da');
+		assert.ok(typeof item.contextValue === 'string' && item.contextValue.includes('Pinned'), 'Expected pinned context');
+		assert.ok(typeof item.description === 'string' && item.description.includes('x:'), 'Expected dims description');
+
+		__clearXarrayCacheForTests(notebookUri);
+	});
+
+	suiteTeardown(async () => {
+		if (tempDir) {
+			await fs.promises.rm(tempDir, { recursive: true, force: true });
+			tempDir = undefined;
+		}
 	});
 });
 
@@ -392,5 +583,239 @@ suite('E2E Tests (Python/Jupyter)', function () {
 		assert.ok(secondA, 'Expected a in second query results');
 		assert.ok(secondB, 'Expected b in second query results');
 		assert.strictEqual(secondA?.watched, false, 'Expected a to be unwatched after unwatch');
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Kernel Smoke Tests (Requires real VS Code kernel connection)
+// These tests verify the actual kernel API works end-to-end.
+// ─────────────────────────────────────────────────────────────────────────────
+
+suite('Kernel Smoke Tests', function () {
+	// Skip if E2E not enabled
+	if (!E2E_ENABLED) {
+		test('Skipped - set ERLAB_E2E=1 to enable', () => {
+			console.log('[erlab] Kernel smoke tests skipped. Set ERLAB_E2E=1 to run.');
+		});
+		return;
+	}
+
+	this.timeout(120_000); // 2 minutes - kernel selection can be slow
+
+	const jupyterExtensionId = 'ms-toolsai.jupyter';
+	let notebook: vscode.NotebookDocument | undefined;
+	let tempDir: string | undefined;
+
+	function buildNotebookJson(content: string): string {
+		const lines = content.split('\n').map((line) => `${line}\n`);
+		const notebookData = {
+			cells: [
+				{
+					cell_type: 'code',
+					execution_count: null,
+					metadata: {},
+					outputs: [],
+					source: lines,
+				},
+			],
+			metadata: {
+				kernelspec: {
+					name: 'erlab-e2e',
+					display_name: 'erlab-e2e',
+					language: 'python',
+				},
+				language_info: { name: 'python' },
+			},
+			nbformat: 4,
+			nbformat_minor: 5,
+		};
+		return JSON.stringify(notebookData);
+	}
+
+	async function ensureJupyterExtension(): Promise<void> {
+		const jupyterExtension = vscode.extensions.getExtension(jupyterExtensionId);
+		if (!jupyterExtension) {
+			throw new Error('Jupyter extension not available in test host.');
+		}
+		if (!jupyterExtension.isActive) {
+			await jupyterExtension.activate();
+		}
+	}
+
+	async function createNotebook(content: string): Promise<vscode.NotebookDocument> {
+		await ensureJupyterExtension();
+		tempDir = tempDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'erlab-kernel-smoke-'));
+		const filePath = path.join(tempDir, `kernel-test-${Date.now()}.ipynb`);
+		await fs.promises.writeFile(filePath, buildNotebookJson(content), 'utf8');
+		const uri = vscode.Uri.file(filePath);
+		const doc = await vscode.workspace.openNotebookDocument(uri);
+		await vscode.window.showNotebookDocument(doc);
+		return doc;
+	}
+
+	/**
+	 * Wait for a kernel to become available for the notebook.
+	 * Uses polling with exponential backoff.
+	 */
+	async function waitForKernel(
+		notebookUri: vscode.Uri,
+		maxWaitMs: number = 90_000
+	): Promise<boolean> {
+		const { getKernelForNotebook } = await import('../kernel/kernelClient.js');
+		const startTime = Date.now();
+		let delay = 500;
+		const maxDelay = 5000;
+
+		while (Date.now() - startTime < maxWaitMs) {
+			const kernel = await getKernelForNotebook(notebookUri);
+			if (kernel) {
+				console.log(`[erlab] Kernel ready after ${Date.now() - startTime}ms`);
+				return true;
+			}
+			await new Promise((resolve) => setTimeout(resolve, delay));
+			delay = Math.min(delay * 1.5, maxDelay);
+		}
+		return false;
+	}
+
+	test('Kernel API returns kernel for notebook with selected kernel', async function () {
+		await activateExtension();
+
+		try {
+			notebook = await createNotebook('1 + 1');
+		} catch (error) {
+			console.log('[erlab] Failed to create notebook:', error);
+			this.skip();
+		}
+
+		// Try to select kernel via command (may or may not work depending on VS Code state)
+		try {
+			await vscode.commands.executeCommand('notebook.selectKernel', {
+				id: 'erlab-e2e',
+				extension: jupyterExtensionId,
+			});
+		} catch {
+			console.log('[erlab] notebook.selectKernel command failed, waiting for auto-selection');
+		}
+
+		// Wait for kernel to become available
+		const hasKernel = await waitForKernel(notebook.uri, 60_000);
+
+		if (!hasKernel) {
+			console.log('[erlab] No kernel available after waiting - skipping test');
+			console.log('[erlab] This is expected in some CI environments');
+			this.skip();
+		}
+
+		// Verify we can get the kernel
+		const { getKernelForNotebook } = await import('../kernel/kernelClient.js');
+		const kernel = await getKernelForNotebook(notebook.uri);
+		assert.ok(kernel, 'Expected kernel to be available');
+		assert.ok(typeof kernel.executeCode === 'function', 'Kernel should have executeCode method');
+	});
+
+	test('executeInKernelForOutput returns kernel output', async function () {
+		await activateExtension();
+
+		try {
+			notebook = await createNotebook('print("smoke-test-output")');
+		} catch (error) {
+			console.log('[erlab] Failed to create notebook:', error);
+			this.skip();
+		}
+
+		// Try to select kernel
+		try {
+			await vscode.commands.executeCommand('notebook.selectKernel', {
+				id: 'erlab-e2e',
+				extension: jupyterExtensionId,
+			});
+		} catch {
+			// Ignore
+		}
+
+		const hasKernel = await waitForKernel(notebook.uri, 60_000);
+		if (!hasKernel) {
+			console.log('[erlab] No kernel available - skipping test');
+			this.skip();
+		}
+
+		const { executeInKernelForOutput } = await import('../kernel/kernelClient.js');
+		const output = await executeInKernelForOutput(
+			notebook.uri,
+			'print("smoke-test-output")',
+			{ timeoutMs: 30_000, operation: 'smoke-test' }
+		);
+
+		assert.ok(output.includes('smoke-test-output'), `Expected output to contain 'smoke-test-output', got: ${output}`);
+	});
+
+	test('xarray query code executes successfully in kernel', async function () {
+		await activateExtension();
+
+		try {
+			notebook = await createNotebook('import xarray');
+		} catch (error) {
+			console.log('[erlab] Failed to create notebook:', error);
+			this.skip();
+		}
+
+		try {
+			await vscode.commands.executeCommand('notebook.selectKernel', {
+				id: 'erlab-e2e',
+				extension: jupyterExtensionId,
+			});
+		} catch {
+			// Ignore
+		}
+
+		const hasKernel = await waitForKernel(notebook.uri, 60_000);
+		if (!hasKernel) {
+			console.log('[erlab] No kernel available - skipping test');
+			this.skip();
+		}
+
+		const { executeInKernelForOutput } = await import('../kernel/kernelClient.js');
+
+		// First create a DataArray
+		const setupCode = `
+import xarray as xr
+import numpy as np
+smoke_da = xr.DataArray(np.arange(10), dims=['x'], name='smoke_da')
+print("setup-done")
+`;
+		const setupOutput = await executeInKernelForOutput(
+			notebook.uri,
+			setupCode,
+			{ timeoutMs: 30_000, operation: 'smoke-setup' }
+		);
+		assert.ok(setupOutput.includes('setup-done'), 'Setup should complete');
+
+		// Now run the xarray query
+		const queryCode = buildXarrayQueryCode();
+		const queryOutput = await executeInKernelForOutput(
+			notebook.uri,
+			queryCode,
+			{ timeoutMs: 30_000, operation: 'smoke-query' }
+		);
+
+		// Parse the JSON output
+		const jsonLines = queryOutput
+			.split(/\r?\n/)
+			.map((line: string) => line.trim())
+			.filter((line: string) => line.startsWith('['));
+
+		assert.ok(jsonLines.length > 0, 'Expected JSON output from xarray query');
+
+		const entries = JSON.parse(jsonLines[jsonLines.length - 1]) as Array<{ variableName: string }>;
+		const smokeEntry = entries.find((e) => e.variableName === 'smoke_da');
+		assert.ok(smokeEntry, 'Expected smoke_da in query results');
+	});
+
+	suiteTeardown(async () => {
+		if (tempDir) {
+			await fs.promises.rm(tempDir, { recursive: true, force: true });
+			tempDir = undefined;
+		}
 	});
 });
