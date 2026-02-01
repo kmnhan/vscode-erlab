@@ -2,6 +2,11 @@
 
 All notable changes to the extension will be documented in this file.
 
+## [Unreleased]
+
+- Fix a regression introduced in v0.4.1 where queued kernel timeouts could interrupt
+  user code before the queued execution started.
+
 ## [v0.4.1] - 2026-02-01
 
 - Add a queue timeout for kernel output executions so a kernel that never starts running

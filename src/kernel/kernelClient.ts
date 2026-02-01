@@ -320,9 +320,6 @@ export async function executeInKernelForOutput(
 				logger.warn(`Kernel execution did not start${label} after ${queueTimeoutMs}ms.`);
 				tokenSource.cancel();
 				void iterator.return?.();
-				if (interruptOnTimeout) {
-					void tryInterruptKernel(kernel, notebookUri, options?.operation);
-				}
 				reject(new Error(`Kernel execution did not start within ${queueTimeoutMs}ms.`));
 			}, queueTimeoutMs);
 		})
