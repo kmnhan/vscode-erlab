@@ -16,6 +16,7 @@ const DEFAULT_KERNEL_QUEUE_WARN_MS = 2000;
 export type KernelExecutionOptions = {
 	timeoutMs?: number;
 	warnAfterMs?: number;
+	queueTimeoutMs?: number;
 	operation?: string;
 	interruptOnTimeout?: boolean;
 };
@@ -283,6 +284,7 @@ export async function executeInKernelForOutput(
 	const label = formatOperationLabel(options?.operation);
 	const warnAfterMs = options?.warnAfterMs ?? DEFAULT_KERNEL_WARN_MS;
 	const interruptOnTimeout = options?.interruptOnTimeout ?? true;
+	const queueTimeoutMs = options?.queueTimeoutMs ?? options?.timeoutMs ?? DEFAULT_KERNEL_TIMEOUT_MS;
 
 	const iterator = kernel.executeCode(codeWithMarker, tokenSource.token)[Symbol.asyncIterator]();
 	const timeoutController = createKernelExecutionTimeout(options, label, () => {
@@ -298,10 +300,33 @@ export async function executeInKernelForOutput(
 		}
 		if (!markerSeen && decoded.includes(executionMarker)) {
 			markerSeen = true;
+			if (queueTimeoutHandle) {
+				clearTimeout(queueTimeoutHandle);
+				queueTimeoutHandle = undefined;
+			}
 			timeoutController.start();
 		}
 		chunks.push(decoded);
 	};
+	let queueTimedOut = false;
+	let queueTimeoutHandle: NodeJS.Timeout | undefined;
+	const queueTimeoutPromise = queueTimeoutMs > 0
+		? new Promise<never>((_resolve, reject) => {
+			queueTimeoutHandle = setTimeout(() => {
+				if (markerSeen) {
+					return;
+				}
+				queueTimedOut = true;
+				logger.warn(`Kernel execution did not start${label} after ${queueTimeoutMs}ms.`);
+				tokenSource.cancel();
+				void iterator.return?.();
+				if (interruptOnTimeout) {
+					void tryInterruptKernel(kernel, notebookUri, options?.operation);
+				}
+				reject(new Error(`Kernel execution did not start within ${queueTimeoutMs}ms.`));
+			}, queueTimeoutMs);
+		})
+		: undefined;
 	const executionPromise = (async () => {
 		logger.trace('Starting kernel execution loop...');
 		for (; ;) {
@@ -340,8 +365,15 @@ export async function executeInKernelForOutput(
 	})();
 
 	try {
-		const result = timeoutController.timeoutPromise
-			? await Promise.race([executionPromise, timeoutController.timeoutPromise])
+		const racePromises = [executionPromise];
+		if (timeoutController.timeoutPromise) {
+			racePromises.push(timeoutController.timeoutPromise);
+		}
+		if (queueTimeoutPromise) {
+			racePromises.push(queueTimeoutPromise);
+		}
+		const result = racePromises.length > 1
+			? await Promise.race(racePromises)
 			: await executionPromise;
 		const elapsedMs = timeoutController.getElapsedMs();
 		if (warnAfterMs > 0 && elapsedMs > warnAfterMs) {
@@ -350,7 +382,11 @@ export async function executeInKernelForOutput(
 		return result;
 	} finally {
 		timeoutController.dispose();
-		if (timeoutController.didTimeout()) {
+		if (queueTimeoutHandle) {
+			clearTimeout(queueTimeoutHandle);
+			queueTimeoutHandle = undefined;
+		}
+		if (timeoutController.didTimeout() || queueTimedOut) {
 			void executionPromise.catch(() => { });
 		}
 		tokenSource.dispose();

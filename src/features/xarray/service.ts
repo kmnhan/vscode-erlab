@@ -30,7 +30,7 @@ const debounceTimers = new Map<string, NodeJS.Timeout>();
 /**
  * Debounce delay in milliseconds for coalescing rapid refresh requests.
  */
-const REFRESH_DEBOUNCE_MS = 150;
+const REFRESH_DEBOUNCE_MS = 300;
 const ENTRY_STALE_MS = 2000;
 
 /**

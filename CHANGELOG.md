@@ -2,6 +2,13 @@
 
 All notable changes to the extension will be documented in this file.
 
+## [Unreleased]
+
+- Add a queue timeout for kernel output executions so a kernel that never starts running
+  the requested code no longer hangs indefinitely.
+- Increase the xarray cache refresh debounce to 300ms to reduce rapid refresh churn when
+  switching notebooks.
+
 ## [v0.4.0] - 2026-01-21
 
 - Hide ERLab magic actions and ImageTool status bar items when the `erlab` package is
