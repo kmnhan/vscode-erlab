@@ -2,7 +2,7 @@
 
 All notable changes to the extension will be documented in this file.
 
-## [Unreleased]
+## [v0.4.2] - 2026-02-01
 
 - Fix a regression introduced in v0.4.1 where queued kernel timeouts could interrupt
   user code before the queued execution started.
