@@ -2,7 +2,7 @@
 
 All notable changes to the extension will be documented in this file.
 
-## [Unreleased]
+## [v0.5.0] - 2026-02-15
 
 - Add marimo notebook support for xarray workflows and ERLab interactive tools,
   including watch/unwatch via the latest erlabpy watcher API. Marimo integration
