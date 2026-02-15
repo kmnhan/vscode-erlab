@@ -5,6 +5,7 @@
 import type { XarrayObjectType } from './types';
 
 const ERLAB_TMP_PREFIX = '__erlab_tmp__';
+const ERLAB_WATCH_STATUS_REQUIREMENT_MESSAGE = 'watched variable status requires erlab 3.20.0 or later. Please upgrade erlab.';
 
 /**
  * Indent a multiline string by a specified number of spaces.
@@ -69,7 +70,11 @@ const EXTRACT_DATATREE_INFO_HELPER = `def ${ERLAB_TMP_PREFIX}extract_datatree_in
 const GET_WATCHED_VARS_CODE = `${ERLAB_TMP_PREFIX}watched_vars = set()
 try:
     import erlab.interactive.imagetool.manager as ${ERLAB_TMP_PREFIX}manager
+    if not callable(getattr(${ERLAB_TMP_PREFIX}manager, "watched_variables", None)):
+        raise RuntimeError(${JSON.stringify(ERLAB_WATCH_STATUS_REQUIREMENT_MESSAGE)})
     ${ERLAB_TMP_PREFIX}watched_vars = set(${ERLAB_TMP_PREFIX}manager.watched_variables())
+except RuntimeError:
+    raise
 except Exception:
     ${ERLAB_TMP_PREFIX}watched_vars = set()`;
 

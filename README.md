@@ -82,7 +82,7 @@ appear when the kernel has the `erlab` package installed:
 - A running Python kernel for the notebook, with `xarray >=2024.10` installed.
 - (Optional) The [`erlab` Python package](https://github.com/kmnhan/erlabpy) for
   integration with its GUI. A Qt backend (PyQt6 or PySide6) is also required to use the
-  GUI.
+  GUI. Watch/unwatch integration and watched status indicators require `erlab>=3.20.0`.
 
 ## Notes
 

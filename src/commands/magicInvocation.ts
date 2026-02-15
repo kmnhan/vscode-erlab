@@ -3,6 +3,7 @@
  */
 
 const ERLAB_TMP_PREFIX = '__erlab_tmp__';
+const ERLAB_WATCH_API_REQUIREMENT_MESSAGE = 'watch/unwatch requires erlab 3.20.0 or later. Please upgrade erlab.';
 
 /**
  * Build code to invoke an IPython magic with string arguments.
@@ -121,6 +122,8 @@ export function buildMarimoWatchInvocation(
 		: [`${ERLAB_TMP_PREFIX}manager.watch(${ERLAB_TMP_PREFIX}varname)`];
 	const bodyLines = [
 		`import erlab.interactive.imagetool.manager as ${ERLAB_TMP_PREFIX}manager`,
+		`if not callable(getattr(${ERLAB_TMP_PREFIX}manager, "watch", None)):`,
+		`    raise RuntimeError(${JSON.stringify(ERLAB_WATCH_API_REQUIREMENT_MESSAGE)})`,
 		`${ERLAB_TMP_PREFIX}varname = ${JSON.stringify(variableName)}`,
 		...applyWatchLines,
 	];
