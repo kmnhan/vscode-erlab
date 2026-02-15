@@ -1,15 +1,14 @@
 /**
- * Contract tests for Jupyter API types.
+ * Contract tests for notebook kernel API types.
  *
- * These tests verify that the JupyterApi type structure matches
- * what the extension expects at runtime. This helps catch breaking
- * changes in the Jupyter extension's API.
+ * These tests verify that Jupyter and marimo API type structures match
+ * what the extension expects at runtime.
  *
  * NOTE: These are structural/shape tests that run without VS Code.
  * Runtime verification happens in the kernel smoke tests.
  */
 import * as assert from 'assert';
-import type { JupyterApi, KernelLike, KernelOutput, KernelOutputItem } from '../../kernel/types.js';
+import type { JupyterApi, KernelLike, KernelOutput, KernelOutputItem, MarimoApi } from '../../kernel/types.js';
 
 suite('Jupyter API Contract Tests', function () {
 	suite('JupyterApi type structure', function () {
@@ -55,6 +54,44 @@ suite('Jupyter API Contract Tests', function () {
 
 			const result = await api.kernels?.getKernel({ toString: () => 'test://uri' } as never);
 			assert.strictEqual(result, undefined, 'getKernel should return undefined when no kernel');
+		});
+	});
+
+	suite('MarimoApi type structure', function () {
+		test('MarimoApi has optional experimental.kernels property', function () {
+			const apiWithKernels: MarimoApi = {
+				experimental: {
+					kernels: {
+						getKernel: async () => undefined,
+					},
+				},
+			};
+			const apiWithoutKernels: MarimoApi = {};
+
+			assert.ok(apiWithKernels.experimental?.kernels, 'API with kernels should have experimental.kernels');
+			assert.ok(!apiWithoutKernels.experimental?.kernels, 'API without experimental kernels is valid');
+		});
+
+		test('experimental.kernels.getKernel returns Thenable<KernelLike | undefined>', async function () {
+			const mockKernel: KernelLike = {
+				executeCode: () => ({
+					[Symbol.asyncIterator]: async function* () {
+						// Empty iterator
+					},
+				}),
+			};
+
+			const api: MarimoApi = {
+				experimental: {
+					kernels: {
+						getKernel: async () => mockKernel,
+					},
+				},
+			};
+
+			const result = await api.experimental?.kernels?.getKernel({ toString: () => 'test://uri' } as never);
+			assert.ok(result, 'getKernel should return a kernel');
+			assert.strictEqual(typeof result.executeCode, 'function', 'Kernel should have executeCode method');
 		});
 	});
 

@@ -2,6 +2,16 @@
 
 All notable changes to the extension will be documented in this file.
 
+## [Unreleased]
+
+- Add marimo notebook support for xarray workflows and ERLab interactive tools,
+  including watch/unwatch via the latest erlabpy watcher API. Marimo integration
+  requires `erlab>=3.20.0`.
+- Remove the hard `ms-toolsai.jupyter` manifest dependency so marimo-only setups do not
+  require Jupyter to be installed.
+- Standardize kernel error handling across Jupyter and marimo with structured envelope
+  execution so errors surface reliably with concise alerts.
+
 ## [v0.4.2] - 2026-02-01
 
 - Fix a regression introduced in v0.4.1 where queued kernel timeouts could interrupt

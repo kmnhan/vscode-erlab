@@ -162,7 +162,10 @@ Kernel selection in VS Code is **asynchronous and unpredictable**:
 
 ## Extension Dependencies
 
-This extension requires `ms-toolsai.jupyter` (Jupyter extension) to be installed.
+This extension supports:
+
+- `ms-toolsai.jupyter` for Jupyter notebooks.
+- `marimo-team.vscode-marimo` for marimo notebooks.
 
 ## Code Conventions
 

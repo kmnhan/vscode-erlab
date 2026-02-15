@@ -6,12 +6,56 @@ import * as path from 'path';
 
 const notebookUriByCellDocument = new WeakMap<vscode.TextDocument, vscode.Uri>();
 const notebookUriByCellString = new Map<string, vscode.Uri>();
+const SUPPORTED_NOTEBOOK_TYPES = new Set(['jupyter-notebook', 'marimo-notebook']);
+const SUPPORTED_NOTEBOOK_LANGUAGE_IDS = new Set(['python', 'mo-python']);
 
 /**
  * Check if a document is a notebook cell document.
  */
 export function isNotebookCellDocument(document: vscode.TextDocument): boolean {
 	return document.uri.scheme === 'vscode-notebook-cell';
+}
+
+/**
+ * Check if a notebook type is supported by erlab features.
+ */
+export function isSupportedNotebookType(notebookType: string): boolean {
+	return SUPPORTED_NOTEBOOK_TYPES.has(notebookType);
+}
+
+/**
+ * Check if a language id is supported by erlab notebook features.
+ */
+export function isSupportedNotebookLanguage(languageId: string): boolean {
+	return SUPPORTED_NOTEBOOK_LANGUAGE_IDS.has(languageId);
+}
+
+/**
+ * Get the notebook document for a cell document.
+ */
+export function getNotebookDocumentForCellDocument(document: vscode.TextDocument): vscode.NotebookDocument | undefined {
+	if (!isNotebookCellDocument(document)) {
+		return;
+	}
+	const notebookUri = getNotebookUriForDocument(document);
+	if (!notebookUri) {
+		return;
+	}
+	return vscode.workspace.notebookDocuments.find((notebook) => notebook.uri.toString() === notebookUri.toString());
+}
+
+/**
+ * Check if a document is a supported Python notebook cell document.
+ */
+export function isSupportedNotebookCellDocument(document: vscode.TextDocument): boolean {
+	if (!isNotebookCellDocument(document) || !isSupportedNotebookLanguage(document.languageId)) {
+		return false;
+	}
+	const notebook = getNotebookDocumentForCellDocument(document);
+	if (!notebook) {
+		return false;
+	}
+	return isSupportedNotebookType(notebook.notebookType);
 }
 
 /**
@@ -39,12 +83,16 @@ export function getNotebookUriForDocument(document: vscode.TextDocument): vscode
  */
 export function getActiveNotebookUri(): vscode.Uri | undefined {
 	const notebookEditor = vscode.window.activeNotebookEditor;
-	if (notebookEditor?.notebook) {
+	if (notebookEditor?.notebook && isSupportedNotebookType(notebookEditor.notebook.notebookType)) {
 		return notebookEditor.notebook.uri;
 	}
 	const activeEditor = vscode.window.activeTextEditor;
 	if (activeEditor) {
-		return getNotebookUriForDocument(activeEditor.document);
+		const notebook = getNotebookDocumentForCellDocument(activeEditor.document);
+		if (!notebook || !isSupportedNotebookType(notebook.notebookType)) {
+			return;
+		}
+		return notebook.uri;
 	}
 	return;
 }

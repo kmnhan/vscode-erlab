@@ -5,6 +5,9 @@ import * as assert from 'assert';
 import {
 	buildMagicInvocation,
 	buildItoolInvocation,
+	buildMarimoItoolInvocation,
+	buildMarimoToolInvocation,
+	buildMarimoWatchInvocation,
 } from '../../commands/magicInvocation';
 
 suite('Magic Invocation', () => {
@@ -54,6 +57,38 @@ suite('Magic Invocation', () => {
 		test('includes cleanup for manager import', () => {
 			const code = buildItoolInvocation('data', true);
 			assert.ok(code.includes('del __erlab_tmp__manager'));
+		});
+	});
+
+	suite('buildMarimoToolInvocation', () => {
+		test('generates direct invocation code with data_name', () => {
+			const code = buildMarimoToolInvocation('ktool', 'mydata');
+			assert.ok(code.includes('getattr(__erlab_tmp__interactive, "ktool")'));
+			assert.ok(code.includes('data_name=__erlab_tmp__varname'));
+			assert.ok(code.includes('__erlab_tmp__varname = "mydata"'));
+		});
+	});
+
+	suite('buildMarimoItoolInvocation', () => {
+		test('generates direct itool code with manager flag', () => {
+			const code = buildMarimoItoolInvocation('mydata', true);
+			assert.ok(code.includes('__erlab_tmp__interactive.itool('));
+			assert.ok(code.includes('manager=True'));
+		});
+	});
+
+	suite('buildMarimoWatchInvocation', () => {
+		test('generates watch code using manager.watch API', () => {
+			const code = buildMarimoWatchInvocation('mydata', { unwatch: false });
+			assert.ok(code.includes('erlab.interactive.imagetool.manager'));
+			assert.ok(code.includes('manager.watch(__erlab_tmp__varname)'));
+			assert.ok(!code.includes('watch_data('));
+		});
+
+		test('generates unwatch code', () => {
+			const code = buildMarimoWatchInvocation('mydata', { unwatch: true });
+			assert.ok(code.includes('manager.watch(__erlab_tmp__varname, stop=True, remove=False)'));
+			assert.ok(!code.includes('unwatch_data('));
 		});
 	});
 });

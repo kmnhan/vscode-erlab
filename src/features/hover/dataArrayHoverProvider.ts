@@ -2,7 +2,7 @@
  * xarray hover provider for showing xarray object info on hover in notebook cells.
  */
 import * as vscode from 'vscode';
-import { isNotebookCellDocument, getNotebookUriForDocument } from '../../notebook';
+import { isSupportedNotebookCellDocument, getNotebookUriForDocument } from '../../notebook';
 import { isValidPythonIdentifier } from '../../python/identifiers';
 import { encodeCommandArgs } from '../../commands';
 import {
@@ -21,9 +21,9 @@ export function registerXarrayHoverProvider(
 	pinnedStore: PinnedXarrayStore,
 	options?: { isErlabAvailable?: (notebookUri: vscode.Uri) => boolean }
 ): vscode.Disposable {
-	return vscode.languages.registerHoverProvider({ language: 'python' }, {
+	return vscode.languages.registerHoverProvider([{ language: 'python' }, { language: 'mo-python' }], {
 		provideHover: async (document: vscode.TextDocument, position: vscode.Position): Promise<vscode.Hover | undefined> => {
-			if (!isNotebookCellDocument(document)) {
+			if (!isSupportedNotebookCellDocument(document)) {
 				return;
 			}
 

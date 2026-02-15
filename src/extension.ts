@@ -15,7 +15,14 @@ import {
 	getKernelForNotebook,
 	type KernelLike,
 } from './kernel';
-import { isNotebookCellDocument, getNotebookUriForDocument, getActiveNotebookUri, resolveNotebookUri } from './notebook';
+import {
+	getActiveNotebookUri,
+	getNotebookDocumentForCellDocument,
+	getNotebookUriForDocument,
+	isSupportedNotebookCellDocument,
+	isSupportedNotebookLanguage,
+	resolveNotebookUri,
+} from './notebook';
 import { findNotebookDefinitionLocation } from './notebook/definitionSearch';
 import { isValidPythonIdentifier } from './python/identifiers';
 
@@ -27,7 +34,13 @@ import {
 	normalizeJupyterVariableViewerArgs,
 	normalizeXarrayArgs,
 } from './commands';
-import { buildMagicInvocation, buildItoolInvocation } from './commands/magicInvocation';
+import {
+	buildItoolInvocation,
+	buildMagicInvocation,
+	buildMarimoItoolInvocation,
+	buildMarimoToolInvocation,
+	buildMarimoWatchInvocation,
+} from './commands/magicInvocation';
 
 // Features
 import {
@@ -81,6 +94,14 @@ function showMagicOutput(output: string): void {
 	const normalized = trimmed.replace(/\r?\n+/g, ' | ');
 	const message = normalized.length > 300 ? `${normalized.slice(0, 300)}…` : normalized;
 	vscode.window.setStatusBarMessage(`erlab: ${message}`, 2500);
+}
+
+function showErlabInfo(message: string): void {
+	void vscode.window.showInformationMessage(`erlab: ${message}`);
+}
+
+function showErlabError(message: string): void {
+	void vscode.window.showErrorMessage(`erlab: ${message}`);
 }
 
 const ERLAB_AVAILABLE_CONTEXT = 'erlab.hasErlab';
@@ -232,44 +253,52 @@ export function activate(context: vscode.ExtensionContext) {
 		magicName: string,
 		buildArgs: (variableName: string) => string,
 		buildMagicCode?: (variableName: string) => string,
-		onDidExecute?: (variableName: string, document: vscode.TextDocument) => void | Promise<void>
+		onDidExecute?: (variableName: string, document: vscode.TextDocument) => void | Promise<void>,
+		buildMarimoCode?: (variableName: string) => string
 	): vscode.Disposable => vscode.commands.registerCommand(commandId, async (args?: MagicCommandArgs) => {
 		try {
 			const editor = vscode.window.activeTextEditor;
-			if (!editor || !isNotebookCellDocument(editor.document)) {
-				vscode.window.showInformationMessage('erlab: open a Python notebook cell to run the magic.');
+			if (!editor || !isSupportedNotebookCellDocument(editor.document)) {
+				showErlabInfo('open a Python notebook cell to run the magic.');
 				return;
 			}
 
 			const variableName = args?.variableName ?? getVariableAtSelection(editor);
 			if (!variableName) {
-				vscode.window.showInformationMessage('erlab: place the cursor on a variable name.');
+				showErlabInfo('place the cursor on a variable name.');
 				return;
 			}
 
 			await vscode.commands.executeCommand('editor.action.hideHover');
 			const notebookUri = getNotebookUriForDocument(editor.document);
 			if (!notebookUri) {
-				vscode.window.showInformationMessage('erlab: open a notebook to run the magic.');
+				showErlabInfo('open a notebook to run the magic.');
 				return;
 			}
 			await updateErlabContextForNotebook(notebookUri);
 			const cachedAvailability = getCachedErlabAvailability(notebookUri);
 			if (cachedAvailability === false) {
-				vscode.window.showInformationMessage('erlab: erlab is not available in this kernel.');
+				showErlabInfo('erlab is not available in this kernel.');
 				return;
 			}
-			const code = buildMagicCode
-				? buildMagicCode(variableName)
-				: buildMagicInvocation(magicName, buildArgs(variableName));
-			const output = await executeInKernel(notebookUri, code, { operation: `magic:${magicName}` });
+			const notebook = vscode.workspace.notebookDocuments.find((doc) => doc.uri.toString() === notebookUri.toString());
+			const isMarimoNotebook = notebook?.notebookType === 'marimo-notebook';
+			const isMarimoPath = Boolean(isMarimoNotebook && buildMarimoCode);
+			const code = isMarimoPath
+				? buildMarimoCode!(variableName)
+				: buildMagicCode
+					? buildMagicCode(variableName)
+					: buildMagicInvocation(magicName, buildArgs(variableName));
+			const output = await executeInKernel(notebookUri, code, {
+				operation: `${isMarimoPath ? 'tool' : 'magic'}:${magicName}`,
+			});
 			showMagicOutput(output);
 			if (onDidExecute) {
 				await onDidExecute(variableName, editor.document);
 			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			vscode.window.showErrorMessage(`erlab: ${message}`);
+			showErlabError(message);
 		}
 	});
 
@@ -326,7 +355,7 @@ export function activate(context: vscode.ExtensionContext) {
 		'erlab.watch',
 		'watch',
 		(variableName) => variableName,
-		undefined,
+		(variableName) => buildMarimoWatchInvocation(variableName, { unwatch: false }),
 		async (_variableName, document) => {
 			const notebookUri = getNotebookUriForDocument(document);
 			await requestXarrayRefresh({ refreshCache: true, notebookUri });
@@ -341,14 +370,18 @@ export function activate(context: vscode.ExtensionContext) {
 			const useManager = vscode.workspace.getConfiguration('erlab').get<boolean>('itool.useManager', true);
 			return buildItoolInvocation(variableName, useManager);
 		},
-		() => requestXarrayRefresh()
+		() => requestXarrayRefresh(),
+		(variableName) => {
+			const useManager = vscode.workspace.getConfiguration('erlab').get<boolean>('itool.useManager', true);
+			return buildMarimoItoolInvocation(variableName, useManager);
+		}
 	);
 
 	const unwatchDisposable = registerMagicCommand(
 		'erlab.unwatch',
 		'watch',
 		(variableName) => `-d ${variableName}`,
-		undefined,
+		(variableName) => buildMarimoWatchInvocation(variableName, { unwatch: true }),
 		async (_variableName, document) => {
 			const notebookUri = getNotebookUriForDocument(document);
 			await requestXarrayRefresh({ refreshCache: true, notebookUri });
@@ -359,37 +392,55 @@ export function activate(context: vscode.ExtensionContext) {
 	const ktoolDisposable = registerMagicCommand(
 		'erlab.ktool',
 		'ktool',
-		(variableName) => variableName
+		(variableName) => variableName,
+		undefined,
+		undefined,
+		(variableName) => buildMarimoToolInvocation('ktool', variableName)
 	);
 
 	const dtoolDisposable = registerMagicCommand(
 		'erlab.dtool',
 		'dtool',
-		(variableName) => variableName
+		(variableName) => variableName,
+		undefined,
+		undefined,
+		(variableName) => buildMarimoToolInvocation('dtool', variableName)
 	);
 
 	const restoolDisposable = registerMagicCommand(
 		'erlab.restool',
 		'restool',
-		(variableName) => variableName
+		(variableName) => variableName,
+		undefined,
+		undefined,
+		(variableName) => buildMarimoToolInvocation('restool', variableName)
 	);
 
 	const meshtoolDisposable = registerMagicCommand(
 		'erlab.meshtool',
 		'meshtool',
-		(variableName) => variableName
+		(variableName) => variableName,
+		undefined,
+		undefined,
+		(variableName) => buildMarimoToolInvocation('meshtool', variableName)
 	);
 
 	const ftoolDisposable = registerMagicCommand(
 		'erlab.ftool',
 		'ftool',
-		(variableName) => variableName
+		(variableName) => variableName,
+		undefined,
+		undefined,
+		(variableName) => buildMarimoToolInvocation('ftool', variableName)
 	);
 
 	const goldtoolDisposable = registerMagicCommand(
 		'erlab.goldtool',
 		'goldtool',
-		(variableName) => variableName
+		(variableName) => variableName,
+		undefined,
+		undefined,
+		(variableName) => buildMarimoToolInvocation('goldtool', variableName)
 	);
 
 	// Quick Pick command for other tools
@@ -424,7 +475,7 @@ export function activate(context: vscode.ExtensionContext) {
 	// Selection and context tracking
 	// ─────────────────────────────────────────────────────────────────────────
 	const selectionDisposable = vscode.window.onDidChangeTextEditorSelection(async (event: vscode.TextEditorSelectionChangeEvent) => {
-		if (!event.textEditor || !isNotebookCellDocument(event.textEditor.document)) {
+		if (!event.textEditor || !isSupportedNotebookCellDocument(event.textEditor.document)) {
 			await vscode.commands.executeCommand('setContext', DATA_ARRAY_CONTEXT, false);
 			return;
 		}
@@ -450,7 +501,7 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	const activeEditorDisposable = vscode.window.onDidChangeActiveTextEditor(async (editor?: vscode.TextEditor) => {
-		if (!editor || !isNotebookCellDocument(editor.document)) {
+		if (!editor || !isSupportedNotebookCellDocument(editor.document)) {
 			await vscode.commands.executeCommand('setContext', DATA_ARRAY_CONTEXT, false);
 			await vscode.commands.executeCommand('setContext', DATA_ARRAY_WATCHED_CONTEXT, false);
 			void requestXarrayRefresh();
@@ -499,53 +550,58 @@ export function activate(context: vscode.ExtensionContext) {
 	// ─────────────────────────────────────────────────────────────────────────
 	// Notebook cell status bar
 	// ─────────────────────────────────────────────────────────────────────────
-	const notebookCellStatusBarDisposable = vscode.notebooks.registerNotebookCellStatusBarItemProvider(
-		'jupyter-notebook',
-		{
-			provideCellStatusBarItems: (
-				cell: vscode.NotebookCell,
-				token: vscode.CancellationToken
-			): vscode.NotebookCellStatusBarItem[] => {
-				if (cell.document.languageId !== 'python') {
-					return [];
-				}
-
-				const variableName = getLastLineVariable(cell.document);
-				if (!variableName || !isValidPythonIdentifier(variableName)) {
-					return [];
-				}
-
-				// Use synchronous cache lookup - no kernel query
-				const notebookUri = getNotebookUriForDocument(cell.document);
-				if (!notebookUri) {
-					return [];
-				}
-				if (!isErlabAvailable(notebookUri)) {
-					return [];
-				}
-				const entry = getCachedXarrayEntry(notebookUri, variableName);
-				if (token.isCancellationRequested || !entry) {
-					return [];
-				}
-				if (entry.type !== 'DataArray') {
-					return [];
-				}
-
-				const label = `$(empty-window) Open '${variableName}' in ImageTool`;
-				const item = new vscode.NotebookCellStatusBarItem(
-					label,
-					vscode.NotebookCellStatusBarAlignment.Left
-				);
-				item.priority = 1000;
-				item.command = {
-					command: 'erlab.itool',
-					title: 'Open in ImageTool',
-					arguments: [{ variableName }]
-				};
-				item.tooltip = label;
-				return [item];
+	const notebookCellStatusBarProvider: vscode.NotebookCellStatusBarItemProvider = {
+		provideCellStatusBarItems: (
+			cell: vscode.NotebookCell,
+			token: vscode.CancellationToken
+		): vscode.NotebookCellStatusBarItem[] => {
+			if (!isSupportedNotebookLanguage(cell.document.languageId)) {
+				return [];
 			}
-		}
+
+			const variableName = getLastLineVariable(cell.document);
+			if (!variableName || !isValidPythonIdentifier(variableName)) {
+				return [];
+			}
+
+			// Use synchronous cache lookup - no kernel query
+			const notebookUri = getNotebookUriForDocument(cell.document);
+			if (!notebookUri) {
+				return [];
+			}
+			if (!isErlabAvailable(notebookUri)) {
+				return [];
+			}
+			const entry = getCachedXarrayEntry(notebookUri, variableName);
+			if (token.isCancellationRequested || !entry) {
+				return [];
+			}
+			if (entry.type !== 'DataArray') {
+				return [];
+			}
+
+			const label = `$(empty-window) Open '${variableName}' in ImageTool`;
+			const item = new vscode.NotebookCellStatusBarItem(
+				label,
+				vscode.NotebookCellStatusBarAlignment.Left
+			);
+			item.priority = 1000;
+			item.command = {
+				command: 'erlab.itool',
+				title: 'Open in ImageTool',
+				arguments: [{ variableName }]
+			};
+			item.tooltip = label;
+			return [item];
+		},
+	};
+	const jupyterNotebookCellStatusBarDisposable = vscode.notebooks.registerNotebookCellStatusBarItemProvider(
+		'jupyter-notebook',
+		notebookCellStatusBarProvider
+	);
+	const marimoNotebookCellStatusBarDisposable = vscode.notebooks.registerNotebookCellStatusBarItemProvider(
+		'marimo-notebook',
+		notebookCellStatusBarProvider
 	);
 
 	// ─────────────────────────────────────────────────────────────────────────
@@ -592,7 +648,7 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 			const notebookUri = resolveNotebookUri(normalized?.notebookUri);
 			if (!notebookUri) {
-				vscode.window.showInformationMessage('erlab: open a notebook to view DataArrays.');
+				showErlabInfo('open a notebook to view DataArrays.');
 				return;
 			}
 			const activeNotebook = getActiveNotebookUri();
@@ -607,21 +663,21 @@ export function activate(context: vscode.ExtensionContext) {
 		'erlab.openDetail',
 		async (args?: unknown) => {
 			const normalized = normalizeJupyterVariableViewerArgs(args as JupyterVariableViewerArgs);
-			const paletteMessage = 'erlab: execute a cell to start the kernel and load variables.';
+			const paletteMessage = 'execute a cell to start the kernel and load variables.';
 			if (!normalized?.variableName) {
 				const activeNotebook = getActiveNotebookUri();
 				if (!activeNotebook) {
-					vscode.window.showInformationMessage(paletteMessage);
+					showErlabInfo(paletteMessage);
 					return;
 				}
 				const kernel = await getKernelForNotebook(activeNotebook);
 				if (!kernel) {
-					vscode.window.showInformationMessage(paletteMessage);
+					showErlabInfo(paletteMessage);
 					return;
 				}
 				const refresh = await refreshXarrayCache(activeNotebook);
 				if (refresh.error || refresh.entries.length === 0) {
-					vscode.window.showInformationMessage(paletteMessage);
+					showErlabInfo(paletteMessage);
 					return;
 				}
 				const entries = refresh.entries
@@ -647,7 +703,7 @@ export function activate(context: vscode.ExtensionContext) {
 			const variableName = normalized.variableName;
 			let notebookUri = resolveNotebookUri(normalized?.notebookUri);
 			if (!notebookUri) {
-				vscode.window.showInformationMessage('erlab: open a notebook to view xarray objects.');
+				showErlabInfo('open a notebook to view xarray objects.');
 				return;
 			}
 			let kernel = await getKernelForNotebook(notebookUri);
@@ -661,7 +717,7 @@ export function activate(context: vscode.ExtensionContext) {
 				}
 			}
 			if (!kernel) {
-				vscode.window.showInformationMessage(paletteMessage);
+				showErlabInfo(paletteMessage);
 				return;
 			}
 			if (activeNotebook && activeNotebook.toString() === notebookUri.toString()) {
@@ -681,7 +737,7 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 			const notebookUri = resolveNotebookUri(normalized?.notebookUri);
 			if (!notebookUri) {
-				vscode.window.showInformationMessage('erlab: open a notebook to pin DataArrays.');
+				showErlabInfo('open a notebook to pin DataArrays.');
 				return;
 			}
 			await vscode.commands.executeCommand('editor.action.hideHover');
@@ -709,7 +765,7 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 			const notebookUri = resolveNotebookUri(normalized?.notebookUri);
 			if (!notebookUri) {
-				vscode.window.showInformationMessage('erlab: open a notebook to pin DataArrays.');
+				showErlabInfo('open a notebook to pin DataArrays.');
 				return;
 			}
 			if (!pinnedStore.isPinned(notebookUri, variableName)) {
@@ -729,7 +785,7 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 			const notebookUri = resolveNotebookUri(normalized?.notebookUri);
 			if (!notebookUri) {
-				vscode.window.showInformationMessage('erlab: open a notebook to unpin DataArrays.');
+				showErlabInfo('open a notebook to unpin DataArrays.');
 				return;
 			}
 			if (pinnedStore.isPinned(notebookUri, variableName)) {
@@ -749,7 +805,7 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 			const notebookUri = resolveNotebookUri(normalized?.notebookUri);
 			if (!notebookUri) {
-				vscode.window.showInformationMessage('erlab: open a notebook to watch DataArrays.');
+				showErlabInfo('open a notebook to watch DataArrays.');
 				return;
 			}
 			const watched = Boolean(normalized?.watched);
@@ -793,7 +849,7 @@ export function activate(context: vscode.ExtensionContext) {
 				return;
 			}
 			if (typeof normalized?.ndim === 'number' && normalized.ndim >= 5) {
-				vscode.window.showInformationMessage('erlab: ImageTool supports DataArrays with ndim < 5.');
+				showErlabInfo('ImageTool supports DataArrays with ndim < 5.');
 				return;
 			}
 			await vscode.commands.executeCommand('erlab.itool', { variableName });
@@ -810,28 +866,54 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 			const notebookUri = resolveNotebookUri(normalized?.notebookUri);
 			if (!notebookUri) {
-				vscode.window.showInformationMessage('erlab: open a notebook to navigate to definitions.');
+				showErlabInfo('open a notebook to navigate to definitions.');
 				return;
 			}
 			const notebook = vscode.workspace.notebookDocuments.find(
 				(doc) => doc.uri.toString() === notebookUri.toString()
 			);
 			if (!notebook) {
-				vscode.window.showInformationMessage('erlab: active notebook not found.');
+				showErlabInfo('active notebook not found.');
 				return;
 			}
 			const target = await findNotebookDefinitionLocation(notebook, variableName);
-			if (!target) {
-				vscode.window.showInformationMessage(`erlab: no definition found for ${variableName}.`);
-				return;
+				if (!target) {
+					showErlabInfo(`no definition found for ${variableName}.`);
+					return;
+				}
+				const isNotebookCellTarget = target.document.uri.scheme === 'vscode-notebook-cell';
+				if (isNotebookCellTarget) {
+					const targetNotebook = getNotebookDocumentForCellDocument(target.document)
+						?? vscode.workspace.notebookDocuments.find((doc) => doc.uri.toString() === notebookUri.toString());
+					if (targetNotebook) {
+						const cellIndex = targetNotebook
+							.getCells()
+							.findIndex((cell) => cell.document.uri.toString() === target.document.uri.toString());
+						const selections = cellIndex >= 0 ? [new vscode.NotebookRange(cellIndex, cellIndex + 1)] : undefined;
+						await vscode.window.showNotebookDocument(targetNotebook, {
+							preview: true,
+							selections,
+						});
+					}
+				}
+				try {
+					const editor = await vscode.window.showTextDocument(target.document, {
+						selection: target.range,
+						preview: true,
+					});
+					editor.revealRange(target.range, vscode.TextEditorRevealType.InCenter);
+				} catch (error) {
+					if (!isNotebookCellTarget) {
+						throw error;
+					}
+					logger.debug(
+						`Failed to open notebook cell editor for definition target ${target.document.uri.toString()}: ${
+							error instanceof Error ? error.message : String(error)
+						}`
+					);
+				}
 			}
-			const editor = await vscode.window.showTextDocument(target.document, {
-				selection: target.range,
-				preview: true,
-			});
-			editor.revealRange(target.range, vscode.TextEditorRevealType.InCenter);
-		}
-	);
+		);
 
 	// ─────────────────────────────────────────────────────────────────────────
 	// Show output channel command
@@ -856,12 +938,13 @@ export function activate(context: vscode.ExtensionContext) {
 		goldtoolDisposable,
 		otherToolsDisposable,
 		hoverDisposable,
-		selectionDisposable,
-		activeEditorDisposable,
-		activeNotebookDisposable,
-		notebookExecutionDisposable,
-		notebookCellStatusBarDisposable,
-		refreshDataArrayPanelDisposable,
+			selectionDisposable,
+			activeEditorDisposable,
+			activeNotebookDisposable,
+			notebookExecutionDisposable,
+			jupyterNotebookCellStatusBarDisposable,
+			marimoNotebookCellStatusBarDisposable,
+			refreshDataArrayPanelDisposable,
 		openDataArrayDetailDisposable,
 		openDetailDisposable,
 		filterXarrayTypesDisposable,

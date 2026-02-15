@@ -2,15 +2,16 @@
  * Unit tests for Python snippet builders.
  */
 import * as assert from 'assert';
-import { buildXarrayHtmlCode } from '../../features/xarray/pythonSnippets';
+import { buildXarrayHtmlCode, buildXarrayQueryCode } from '../../features/xarray/pythonSnippets';
 
 suite('Python Snippets', () => {
-	suite('buildXarrayHtmlCode', () => {
-		test('generates code with default options when none provided', () => {
-			const code = buildXarrayHtmlCode('myvar');
-			assert.ok(code.includes('display_expand_attrs=True'));
-			assert.ok(code.includes('display_expand_coords=True'));
-			assert.ok(code.includes('display_expand_data=False'));
+		suite('buildXarrayHtmlCode', () => {
+			test('generates code with default options when none provided', () => {
+				const code = buildXarrayHtmlCode('myvar');
+				assert.ok(!code.includes('import IPython'));
+				assert.ok(code.includes('display_expand_attrs=True'));
+				assert.ok(code.includes('display_expand_coords=True'));
+				assert.ok(code.includes('display_expand_data=False'));
 		});
 
 		test('generates code with all options true', () => {
@@ -72,6 +73,28 @@ suite('Python Snippets', () => {
 			assert.ok(setOptionsLine.includes('display_expand_attrs='));
 			assert.ok(setOptionsLine.includes('display_expand_coords='));
 			assert.ok(setOptionsLine.includes('display_expand_data='));
+		});
+	});
+
+		suite('buildXarrayQueryCode', () => {
+			test('uses globals fallback when IPython namespace is unavailable', () => {
+				const code = buildXarrayQueryCode();
+				assert.ok(code.includes('__erlab_tmp__user_ns = globals()'));
+			});
+
+			test('does not require IPython import in generated code', () => {
+				const listCode = buildXarrayQueryCode();
+				const singleCode = buildXarrayQueryCode('myvar');
+				assert.ok(!singleCode.includes('import IPython'));
+				assert.ok(!listCode.includes('\nimport IPython\n'));
+				assert.ok(listCode.includes('import IPython as __erlab_tmp__IPython'));
+			});
+
+			test('uses erlab watcher API for watched variables', () => {
+				const code = buildXarrayQueryCode();
+			assert.ok(code.includes('erlab.interactive.imagetool.manager'));
+			assert.ok(code.includes('watched_variables()'));
+			assert.ok(!code.includes('__erlab_watched_vars__'));
 		});
 	});
 });
