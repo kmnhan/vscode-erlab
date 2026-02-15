@@ -81,6 +81,8 @@ suite('Magic Invocation', () => {
 		test('generates watch code using manager.watch API', () => {
 			const code = buildMarimoWatchInvocation('mydata', { unwatch: false });
 			assert.ok(code.includes('erlab.interactive.imagetool.manager'));
+			assert.ok(code.includes('if not callable(getattr(__erlab_tmp__manager, "watch", None)):'));
+			assert.ok(code.includes('watch/unwatch requires erlab 3.20.0 or later. Please upgrade erlab.'));
 			assert.ok(code.includes('manager.watch(__erlab_tmp__varname)'));
 			assert.ok(!code.includes('watch_data('));
 		});

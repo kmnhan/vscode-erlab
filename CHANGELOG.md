@@ -11,6 +11,8 @@ All notable changes to the extension will be documented in this file.
   require Jupyter to be installed.
 - Standardize kernel error handling across Jupyter and marimo with structured envelope
   execution so errors surface reliably with concise alerts.
+- Show an explicit upgrade message when watch/unwatch or watched-status APIs are used
+  with `erlab<3.20.0`.
 
 ## [v0.4.2] - 2026-02-01
 
