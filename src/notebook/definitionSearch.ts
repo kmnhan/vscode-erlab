@@ -2,6 +2,7 @@
  * Notebook definition search utilities for finding variable definitions.
  */
 import * as vscode from 'vscode';
+import { isSupportedNotebookLanguage } from './notebookUris';
 
 export type DefinitionTarget = {
 	document: vscode.TextDocument;
@@ -49,7 +50,7 @@ export function findNotebookVariableOccurrence(
 ): DefinitionTarget | undefined {
 	const occurrenceRegex = new RegExp(`\\b${escapedName}\\b`);
 	for (const cell of notebook.getCells()) {
-		if (cell.document.languageId !== 'python') {
+		if (!isSupportedNotebookLanguage(cell.document.languageId)) {
 			continue;
 		}
 		for (let lineIndex = 0; lineIndex < cell.document.lineCount; lineIndex += 1) {
@@ -74,7 +75,7 @@ export function findNotebookAssignmentLocation(
 ): DefinitionTarget | undefined {
 	const assignmentRegex = new RegExp(`^(\\s*)(${escapedName})\\s*(=|:|\\+=|-=|\\*=|/=|//=|%=|\\*\\*=|>>=|<<=|&=|\\^=|\\|=)`);
 	for (const cell of notebook.getCells()) {
-		if (cell.document.languageId !== 'python') {
+		if (!isSupportedNotebookLanguage(cell.document.languageId)) {
 			continue;
 		}
 		for (let lineIndex = 0; lineIndex < cell.document.lineCount; lineIndex += 1) {

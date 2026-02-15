@@ -1,5 +1,5 @@
 /**
- * Types for Jupyter kernel interaction.
+ * Types for notebook kernel interaction across providers.
  */
 import * as vscode from 'vscode';
 
@@ -8,8 +8,19 @@ export type KernelOutput = { items: KernelOutputItem[]; metadata?: Record<string
 export type KernelLike = {
 	executeCode: (code: string, token: vscode.CancellationToken) => AsyncIterable<KernelOutput>;
 };
+
+export type KernelAccessor = {
+	getKernel: (uri: vscode.Uri) => Thenable<KernelLike | undefined>;
+};
+
 export type JupyterApi = {
-	kernels?: {
-		getKernel: (uri: vscode.Uri) => Thenable<KernelLike | undefined>;
+	kernels?: KernelAccessor;
+};
+
+export type MarimoApi = {
+	experimental?: {
+		kernels?: KernelAccessor;
 	};
 };
+
+export type KernelProvider = 'jupyter' | 'marimo';

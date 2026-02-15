@@ -3,7 +3,7 @@
   "displayName": "erlab",
   "version": "0.4.2",
   "publisher": "khan",
-  "description": "Extension for working with xarray objects and the ERLab Python package in Jupyter Notebooks",
+  "description": "Extension for working with xarray objects and the ERLab Python package in Jupyter and marimo notebooks",
   "author": {
     "name": "Kimoon Higashihira Han"
   },
@@ -14,71 +14,71 @@
     "ARPES",
     "erlab",
     "erlabpy",
+    "marimo",
     "xarray"
   ],
   "icon": "images/icon.png",
   "pricing": "Free",
   "activationEvents": [
-    "onLanguage:python"
+    "onLanguage:python",
+    "onLanguage:mo-python",
+    "onNotebook:marimo-notebook"
   ],
   "engines": {
     "vscode": "^1.99.0"
   },
   "main": "./out/extension.js",
-  "extensionDependencies": [
-    "ms-toolsai.jupyter"
-  ],
   "contributes": {
     "commands": [
       {
         "command": "erlab.watch",
         "title": "erlab: Watch DataArray",
-        "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray && erlab.hasErlab"
+        "when": "(resourceExtname == .ipynb || notebookType == 'marimo-notebook') && (editorLangId == python || editorLangId == mo-python) && erlab.isDataArray && erlab.hasErlab"
       },
       {
         "command": "erlab.itool",
         "title": "erlab: Open in ImageTool",
-        "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray && erlab.hasErlab"
+        "when": "(resourceExtname == .ipynb || notebookType == 'marimo-notebook') && (editorLangId == python || editorLangId == mo-python) && erlab.isDataArray && erlab.hasErlab"
       },
       {
         "command": "erlab.unwatch",
         "title": "erlab: Unwatch DataArray",
-        "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray && erlab.isDataArrayWatched && erlab.hasErlab"
+        "when": "(resourceExtname == .ipynb || notebookType == 'marimo-notebook') && (editorLangId == python || editorLangId == mo-python) && erlab.isDataArray && erlab.isDataArrayWatched && erlab.hasErlab"
       },
       {
         "command": "erlab.ktool",
         "title": "erlab: Open in ktool",
-        "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray && erlab.hasErlab"
+        "when": "(resourceExtname == .ipynb || notebookType == 'marimo-notebook') && (editorLangId == python || editorLangId == mo-python) && erlab.isDataArray && erlab.hasErlab"
       },
       {
         "command": "erlab.dtool",
         "title": "erlab: Open in dtool",
-        "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray && erlab.hasErlab"
+        "when": "(resourceExtname == .ipynb || notebookType == 'marimo-notebook') && (editorLangId == python || editorLangId == mo-python) && erlab.isDataArray && erlab.hasErlab"
       },
       {
         "command": "erlab.restool",
         "title": "erlab: Open in restool",
-        "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray && erlab.hasErlab"
+        "when": "(resourceExtname == .ipynb || notebookType == 'marimo-notebook') && (editorLangId == python || editorLangId == mo-python) && erlab.isDataArray && erlab.hasErlab"
       },
       {
         "command": "erlab.meshtool",
         "title": "erlab: Open in meshtool",
-        "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray && erlab.hasErlab"
+        "when": "(resourceExtname == .ipynb || notebookType == 'marimo-notebook') && (editorLangId == python || editorLangId == mo-python) && erlab.isDataArray && erlab.hasErlab"
       },
       {
         "command": "erlab.ftool",
         "title": "erlab: Open in ftool",
-        "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray && erlab.hasErlab"
+        "when": "(resourceExtname == .ipynb || notebookType == 'marimo-notebook') && (editorLangId == python || editorLangId == mo-python) && erlab.isDataArray && erlab.hasErlab"
       },
       {
         "command": "erlab.goldtool",
         "title": "erlab: Open in goldtool",
-        "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray && erlab.hasErlab"
+        "when": "(resourceExtname == .ipynb || notebookType == 'marimo-notebook') && (editorLangId == python || editorLangId == mo-python) && erlab.isDataArray && erlab.hasErlab"
       },
       {
         "command": "erlab.xarray.otherTools",
         "title": "erlab: Other Tools...",
-        "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray && erlab.hasErlab"
+        "when": "(resourceExtname == .ipynb || notebookType == 'marimo-notebook') && (editorLangId == python || editorLangId == mo-python) && erlab.isDataArray && erlab.hasErlab"
       },
       {
         "command": "erlab.xarray.refresh",
@@ -225,17 +225,17 @@
       "editor/context": [
         {
           "command": "erlab.watch",
-          "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray && erlab.hasErlab",
+          "when": "(resourceExtname == .ipynb || notebookType == 'marimo-notebook') && (editorLangId == python || editorLangId == mo-python) && erlab.isDataArray && erlab.hasErlab",
           "group": "navigation"
         },
         {
           "command": "erlab.unwatch",
-          "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray && erlab.isDataArrayWatched && erlab.hasErlab",
+          "when": "(resourceExtname == .ipynb || notebookType == 'marimo-notebook') && (editorLangId == python || editorLangId == mo-python) && erlab.isDataArray && erlab.isDataArrayWatched && erlab.hasErlab",
           "group": "navigation"
         },
         {
           "command": "erlab.itool",
-          "when": "resourceExtname == .ipynb && editorLangId == python && erlab.isDataArray && erlab.hasErlab",
+          "when": "(resourceExtname == .ipynb || notebookType == 'marimo-notebook') && (editorLangId == python || editorLangId == mo-python) && erlab.isDataArray && erlab.hasErlab",
           "group": "navigation"
         }
       ],

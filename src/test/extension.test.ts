@@ -50,6 +50,19 @@ async function activateExtension(): Promise<vscode.Extension<unknown>> {
 	return extension!;
 }
 
+function getUriFromShowTextDocumentArg(value: unknown): vscode.Uri | undefined {
+	if (value instanceof vscode.Uri) {
+		return value;
+	}
+	if (value && typeof value === 'object' && 'uri' in value) {
+		const candidate = (value as { uri?: unknown }).uri;
+		if (candidate instanceof vscode.Uri) {
+			return candidate;
+		}
+	}
+	return;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Integration Test Suite (Fast - No Python required)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -327,6 +340,57 @@ suite('Notebook Integration Tests', function () {
 		__clearXarrayCacheForTests(notebookUri);
 	});
 
+	test('Go to definition opens notebook-cell targets', async function () {
+		await activateExtension();
+
+		try {
+			notebook = await createNotebook('source_da = 1\nresult = source_da');
+		} catch (error) {
+			this.skip();
+		}
+
+		await vscode.commands.executeCommand('erlab.xarray.goToDefinition', {
+			variableName: 'source_da',
+			notebookUri: notebook.uri.toString(),
+		});
+
+		const activeNotebook = vscode.window.activeNotebookEditor?.notebook;
+		assert.ok(activeNotebook, 'Expected active notebook editor after go-to-definition');
+		assert.strictEqual(activeNotebook?.uri.toString(), notebook.uri.toString(), 'Expected target notebook to be active');
+	});
+
+	test('Go to definition ignores notebook-cell text editor open failures', async function () {
+		await activateExtension();
+
+		try {
+			notebook = await createNotebook('source_da = 1\nresult = source_da');
+		} catch (error) {
+			this.skip();
+		}
+
+		const originalShowTextDocument = vscode.window.showTextDocument.bind(vscode.window);
+		const windowApi = vscode.window as unknown as {
+			showTextDocument: typeof vscode.window.showTextDocument;
+		};
+		const mockedShowTextDocument = async (...args: unknown[]) => {
+			const uri = getUriFromShowTextDocumentArg(args[0]);
+			if (uri?.scheme === 'vscode-notebook-cell') {
+				throw new Error('Simulated notebook-cell open failure');
+			}
+			return (originalShowTextDocument as (...callArgs: unknown[]) => unknown)(...args);
+		};
+		windowApi.showTextDocument = mockedShowTextDocument as unknown as typeof vscode.window.showTextDocument;
+
+		try {
+			await vscode.commands.executeCommand('erlab.xarray.goToDefinition', {
+				variableName: 'source_da',
+				notebookUri: notebook.uri.toString(),
+			});
+		} finally {
+			windowApi.showTextDocument = originalShowTextDocument;
+		}
+	});
+
 	suiteTeardown(async () => {
 		if (tempDir) {
 			await fs.promises.rm(tempDir, { recursive: true, force: true });
@@ -538,25 +602,26 @@ suite('E2E Tests (Python/Jupyter)', function () {
 	});
 
 	test('Watch/unwatch keeps DataArrays in xarray query results', async function () {
-		this.timeout(60_000);
+			this.timeout(60_000);
 
-		const queryCode = buildXarrayQueryCode();
-		const code = [
-			'import json',
-			'import numpy as np',
-			'import xarray as xr',
-			'import IPython',
-			'from IPython.terminal.interactiveshell import TerminalInteractiveShell',
-			'ip = TerminalInteractiveShell.instance()',
-			'ip.run_line_magic("load_ext", "erlab.interactive")',
-			'ip.user_ns["a"] = xr.DataArray(np.random.rand(2, 2), dims=["x", "y"], name="a")',
-			'ip.user_ns["b"] = xr.DataArray(np.random.rand(2, 2), dims=["x", "y"], name="b")',
-			'ip.run_line_magic("watch", "a")',
-			`query_code = ${JSON.stringify(queryCode)}`,
-			'exec(query_code)',
-			'ip.run_line_magic("watch", "-d a")',
-			'exec(query_code)',
-		].join('\n');
+			const queryCode = buildXarrayQueryCode();
+			const code = [
+				'import json',
+				'import numpy as np',
+				'import xarray as xr',
+				'import IPython',
+				'from IPython.terminal.interactiveshell import TerminalInteractiveShell',
+				'import erlab.interactive.imagetool.manager as manager',
+				'ip = TerminalInteractiveShell.instance()',
+				'ip.run_line_magic("load_ext", "erlab.interactive")',
+				'ip.user_ns["a"] = xr.DataArray(np.random.rand(2, 2), dims=["x", "y"], name="a")',
+				'ip.user_ns["b"] = xr.DataArray(np.random.rand(2, 2), dims=["x", "y"], name="b")',
+				'manager.watch("a", shell=ip)',
+				`query_code = ${JSON.stringify(queryCode)}`,
+				'exec(query_code)',
+				'manager.watch("a", shell=ip, stop=True)',
+				'exec(query_code)',
+			].join('\n');
 
 		const { stdout } = await execFileAsync(venvPython, ['-c', code]);
 		const jsonLines = stdout

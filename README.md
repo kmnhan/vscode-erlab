@@ -3,17 +3,17 @@
 [![VS Code Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/khan.erlab?label=marketplace)](https://marketplace.visualstudio.com/items?itemName=khan.erlab)
 [![Open VSX Version](https://img.shields.io/open-vsx/v/khan/erlab)](https://open-vsx.org/extension/khan/erlab)
 
-This extension adds a dedicated xarray Objects panel for Jupyter notebooks, plus hover
-and context actions to inspect metadata for `DataArray`, `Dataset`, and `DataTree`
-variables. It works with any kernel that has xarray, and optionally adds integration
-with GUI tools when the [`erlab` package](https://github.com/kmnhan/erlabpy) is
-available.
+This extension adds a dedicated xarray Objects panel for Jupyter and marimo notebooks,
+plus hover and context actions to inspect metadata for `DataArray`, `Dataset`, and
+`DataTree` variables. It works with any kernel that has xarray, and optionally adds
+integration with GUI tools when the [`erlab` package](https://github.com/kmnhan/erlabpy)
+is available.
 
 ## Features
 
 ![Hover menu showing DataArray shape and actions](images/screenshot-hover.png)
 
-When hovering over a variable name in a Python cell of a Jupyter notebook, if the
+When hovering over a variable name in a Python cell of a supported notebook, if the
 variable is an xarray object (`DataArray`, `Dataset`, or `DataTree`), the hover shows
 its name and type, along with actions to:
 
@@ -34,7 +34,7 @@ additional interactive tools appear for `DataArray` variables:
 
 ## Usage
 
-1. Open a Jupyter notebook with a Python kernel.
+1. Open a Jupyter (`.ipynb`) notebook or marimo notebook with a Python kernel.
 2. Open the xarray Objects view to browse variables.
 3. Click an xarray object to open its detail panel and HTML representation.
 4. Hover over a variable name in a Python cell to use quick actions.
@@ -47,7 +47,7 @@ additional interactive tools appear for `DataArray` variables:
 
 ### `erlab` specific commands
 
-These commands work on the currently selected variable in a Jupyter notebook cell, and
+These commands work on the currently selected variable in a supported notebook cell, and
 appear when the kernel has the `erlab` package installed:
 
 - `erlab.watch` - Watch a DataArray (or show it if already watched).
@@ -76,8 +76,9 @@ appear when the kernel has the `erlab` package installed:
 
 ## Requirements
 
-- VS Code (or any compatible editor) with the Jupyter extension (`ms-toolsai.jupyter`)
-  installed.
+- VS Code (or any compatible editor) with:
+  - Jupyter extension (`ms-toolsai.jupyter`) for Jupyter notebooks.
+  - marimo extension (`marimo-team.vscode-marimo`) for marimo notebooks.
 - A running Python kernel for the notebook, with `xarray >=2024.10` installed.
 - (Optional) The [`erlab` Python package](https://github.com/kmnhan/erlabpy) for
   integration with its GUI. A Qt backend (PyQt6 or PySide6) is also required to use the

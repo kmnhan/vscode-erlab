@@ -1,5 +1,5 @@
 /**
- * Kernel module - Jupyter kernel execution utilities.
+ * Kernel module - notebook kernel execution utilities.
  */
 export * from './types';
 export * from './kernelClient';

@@ -3,9 +3,14 @@
  */
 import * as assert from 'assert';
 import {
+	buildKernelCommandEnvelope,
+	classifyKernelErrorOutput,
+	extractKernelCommandEnvelopeResult,
 	extractLastJsonLine,
 	normalizeKernelError,
 	decodeKernelOutputItem,
+	selectKernelExecutionError,
+	summarizeKernelCommandEnvelopeError,
 } from '../../kernel/outputParsing';
 
 suite('Kernel Output Parsing', () => {
@@ -90,6 +95,159 @@ suite('Kernel Output Parsing', () => {
 			const raw = '{not valid json}';
 			const result = normalizeKernelError(raw);
 			assert.strictEqual(result, '{not valid json}');
+		});
+	});
+
+	suite('kernel command envelope', () => {
+		test('builds wrapped code with marker output', () => {
+			const marker = '__marker__:';
+			const wrapped = buildKernelCommandEnvelope('print("hello")', marker);
+			assert.ok(wrapped.includes('try:'));
+			assert.ok(wrapped.includes('except BaseException as __erlab_tmp__exc:'));
+			assert.ok(wrapped.includes('__erlab_tmp__code ='));
+			assert.ok(wrapped.includes('exec(compile(__erlab_tmp__code'));
+			assert.ok(wrapped.includes('__erlab_tmp__sys.stdout.write'));
+			assert.ok(wrapped.includes(JSON.stringify(marker)));
+		});
+
+		test('extracts structured result and strips marker line', () => {
+			const marker = '__marker__:';
+			const output = `hello\n${marker}{"ok":true}\n`;
+			const parsed = extractKernelCommandEnvelopeResult(output, marker);
+			assert.strictEqual(parsed.result?.ok, true);
+			assert.strictEqual(parsed.cleanedOutput.trim(), 'hello');
+		});
+
+		test('keeps malformed marker line in output', () => {
+			const marker = '__marker__:';
+			const output = `hello\n${marker}not-json`;
+			const parsed = extractKernelCommandEnvelopeResult(output, marker);
+			assert.strictEqual(parsed.result, undefined);
+			assert.ok(parsed.cleanedOutput.includes(`${marker}not-json`));
+		});
+
+		test('summarizes structured error without traceback parsing', () => {
+			const parsed = summarizeKernelCommandEnvelopeError({
+				ok: false,
+				exc_type: 'RuntimeError',
+				message: 'manager not running',
+				traceback: 'Traceback ...',
+			});
+			assert.strictEqual(parsed.summary, 'RuntimeError: manager not running');
+			assert.ok(parsed.traceback?.includes('Traceback'));
+		});
+	});
+
+	suite('selectKernelExecutionError', () => {
+		test('prefers envelope error over transport errors', () => {
+			const selected = selectKernelExecutionError({
+				transportErrors: ['Traceback ... RuntimeError: noisy'],
+				envelopeResult: {
+					ok: false,
+					exc_type: 'RuntimeError',
+					message: 'manager not running',
+					traceback: 'Traceback ...',
+				},
+			});
+			assert.strictEqual(selected.message, 'RuntimeError: manager not running');
+			assert.strictEqual(selected.source, 'envelope');
+			assert.ok(selected.traceback?.includes('Traceback'));
+		});
+
+		test('ignores transport errors when envelope reports success', () => {
+			const selected = selectKernelExecutionError({
+				transportErrors: ['RuntimeError: noisy'],
+				envelopeResult: { ok: true },
+			});
+			assert.strictEqual(selected.message, undefined);
+			assert.strictEqual(selected.source, undefined);
+		});
+
+		test('falls back to normalized transport errors when no envelope result', () => {
+			const selected = selectKernelExecutionError({
+				transportErrors: [' RuntimeError: failed ', 'RuntimeError: failed', 'ValueError: bad'],
+			});
+			assert.strictEqual(selected.message, 'RuntimeError: failed; ValueError: bad');
+			assert.strictEqual(selected.source, 'transport');
+		});
+	});
+
+	suite('classifyKernelErrorOutput', () => {
+		const errorMime = 'application/vnd.code.notebook.error';
+		const stderrMime = 'application/vnd.code.notebook.stderr';
+
+		test('detects VS Code error mime for any provider', () => {
+			const result = classifyKernelErrorOutput({
+				provider: 'marimo',
+				item: { mime: errorMime, data: '{"name":"TypeError","message":"bad"}' },
+				errorMime,
+				stderrMime,
+			});
+			assert.strictEqual(result, 'TypeError: bad');
+		});
+
+		test('detects marimo stderr channel errors', () => {
+			const result = classifyKernelErrorOutput({
+				provider: 'marimo',
+				outputChannel: 'stderr',
+				item: { mime: stderrMime, data: 'RuntimeError: manager not running' },
+				errorMime,
+				stderrMime,
+			});
+			assert.strictEqual(result, 'RuntimeError: manager not running');
+		});
+
+		test('keeps marimo stderr traceback content as fallback output', () => {
+			const result = classifyKernelErrorOutput({
+				provider: 'marimo',
+				outputChannel: 'stderr',
+				item: {
+					mime: stderrMime,
+					data: 'Traceback (most recent call last):\n  File "<stdin>", line 1, in <module>\nRuntimeError: manager not running',
+				},
+				errorMime,
+				stderrMime,
+			});
+			assert.strictEqual(
+				result,
+				'Traceback (most recent call last):\n  File "<stdin>", line 1, in <module>\nRuntimeError: manager not running'
+			);
+		});
+
+		test('detects marimo-error channel with html content', () => {
+			const result = classifyKernelErrorOutput({
+				provider: 'marimo',
+				outputChannel: 'marimo-error',
+				item: { mime: 'text/html', data: '<b>RuntimeError</b>: failed' },
+				errorMime,
+				stderrMime,
+			});
+			assert.strictEqual(result, 'RuntimeError: failed');
+		});
+
+		test('ignores marimo html traceback fallback without explicit error channel', () => {
+			const result = classifyKernelErrorOutput({
+				provider: 'marimo',
+				outputChannel: 'output',
+				item: {
+					mime: 'text/html',
+					data: '<b>Traceback (most recent call last):</b>\nRuntimeError: failed',
+				},
+				errorMime,
+				stderrMime,
+			});
+			assert.strictEqual(result, undefined);
+		});
+
+		test('ignores jupyter stderr mime output', () => {
+			const result = classifyKernelErrorOutput({
+				provider: 'jupyter',
+				outputChannel: 'stderr',
+				item: { mime: stderrMime, data: 'warning text' },
+				errorMime,
+				stderrMime,
+			});
+			assert.strictEqual(result, undefined);
 		});
 	});
 

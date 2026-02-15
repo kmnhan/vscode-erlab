@@ -68,10 +68,8 @@ const EXTRACT_DATATREE_INFO_HELPER = `def ${ERLAB_TMP_PREFIX}extract_datatree_in
  */
 const GET_WATCHED_VARS_CODE = `${ERLAB_TMP_PREFIX}watched_vars = set()
 try:
-    ${ERLAB_TMP_PREFIX}magic = ${ERLAB_TMP_PREFIX}ip.find_line_magic("watch") if ${ERLAB_TMP_PREFIX}ip else None
-    ${ERLAB_TMP_PREFIX}owner = getattr(${ERLAB_TMP_PREFIX}magic, "__self__", None)
-    ${ERLAB_TMP_PREFIX}watcher = getattr(${ERLAB_TMP_PREFIX}owner, "_watcher", None)
-    ${ERLAB_TMP_PREFIX}watched_vars = set(getattr(${ERLAB_TMP_PREFIX}watcher, "watched_vars", []) or []) if ${ERLAB_TMP_PREFIX}watcher else set()
+    import erlab.interactive.imagetool.manager as ${ERLAB_TMP_PREFIX}manager
+    ${ERLAB_TMP_PREFIX}watched_vars = set(${ERLAB_TMP_PREFIX}manager.watched_variables())
 except Exception:
     ${ERLAB_TMP_PREFIX}watched_vars = set()`;
 
@@ -95,11 +93,9 @@ export function buildXarrayQueryCode(variableName?: string, options?: XarrayQuer
 	if (variableName) {
 		// Single variable mode: returns array with 0 or 1 entry
 		return [
-			'import IPython',
 			'import json',
 			'try:',
 			'    import xarray as xr',
-			`    ${ERLAB_TMP_PREFIX}ip = IPython.get_ipython()`,
 			indent(dataArrayHelper, 4),
 			indent(EXTRACT_DATASET_INFO_HELPER, 4),
 			indent(EXTRACT_DATATREE_INFO_HELPER, 4),
@@ -120,12 +116,19 @@ export function buildXarrayQueryCode(variableName?: string, options?: XarrayQuer
 	} else {
 		// Namespace scan mode: returns array of all xarray objects
 		return [
-			'import IPython',
 			'import json',
 			'try:',
 			'    import xarray as xr',
-			`    ${ERLAB_TMP_PREFIX}ip = IPython.get_ipython()`,
-			`    ${ERLAB_TMP_PREFIX}user_ns = getattr(${ERLAB_TMP_PREFIX}ip, "user_ns", {}) if ${ERLAB_TMP_PREFIX}ip else {}`,
+			`    ${ERLAB_TMP_PREFIX}ip = None`,
+			'    try:',
+			`        import IPython as ${ERLAB_TMP_PREFIX}IPython`,
+			`        ${ERLAB_TMP_PREFIX}ip = ${ERLAB_TMP_PREFIX}IPython.get_ipython()`,
+			'    except Exception:',
+			`        ${ERLAB_TMP_PREFIX}ip = None`,
+			`    if ${ERLAB_TMP_PREFIX}ip and isinstance(getattr(${ERLAB_TMP_PREFIX}ip, "user_ns", None), dict):`,
+			`        ${ERLAB_TMP_PREFIX}user_ns = ${ERLAB_TMP_PREFIX}ip.user_ns`,
+			'    else:',
+			`        ${ERLAB_TMP_PREFIX}user_ns = globals()`,
 			indent(dataArrayHelper, 4),
 			indent(EXTRACT_DATASET_INFO_HELPER, 4),
 			indent(EXTRACT_DATATREE_INFO_HELPER, 4),
@@ -172,11 +175,9 @@ export function buildXarrayHtmlCode(variableName: string, options?: XarrayDispla
 	const expandData = options?.displayExpandData ?? false;
 
 	return [
-		'import IPython',
 		'import json',
 		'try:',
 		'    import xarray as xr',
-		`    ${ERLAB_TMP_PREFIX}ip = IPython.get_ipython()`,
 		`    ${ERLAB_TMP_PREFIX}value = ${variableName}`,
 		`    ${ERLAB_TMP_PREFIX}has_datatree = hasattr(xr, 'DataTree')`,
 		`    if isinstance(${ERLAB_TMP_PREFIX}value, (xr.DataArray, xr.Dataset)) or (${ERLAB_TMP_PREFIX}has_datatree and isinstance(${ERLAB_TMP_PREFIX}value, xr.DataTree)):`,
@@ -186,7 +187,6 @@ export function buildXarrayHtmlCode(variableName: string, options?: XarrayDispla
 		'    else:',
 		'        print(json.dumps({"html": None}))',
 		`    try:`,
-		`        del ${ERLAB_TMP_PREFIX}ip`,
 		`        del ${ERLAB_TMP_PREFIX}value`,
 		`        del ${ERLAB_TMP_PREFIX}html`,
 		`    except Exception:`,
