@@ -20,7 +20,7 @@ jobs:
     if: github.repository == 'kmnhan/vscode-erlab'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v3
         id: app-token
         name: Create GitHub App token
         with:
