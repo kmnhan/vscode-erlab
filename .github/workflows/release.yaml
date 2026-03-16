@@ -81,7 +81,7 @@ jobs:
     needs: package
     if: github.event.inputs.publishGH == 'true' || github.event_name == 'push'
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v3
         id: app-token
         name: Create GitHub App token
         with:
