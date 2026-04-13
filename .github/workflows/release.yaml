@@ -81,7 +81,7 @@ jobs:
     needs: package
     if: github.event.inputs.publishGH == 'true' || github.event_name == 'push'
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v3
         id: app-token
         name: Create GitHub App token
         with:
@@ -94,7 +94,7 @@ jobs:
 
       - name: Create Release
         id: create-release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           token: ${{ steps.app-token.outputs.token }}
           tag_name: ${{ github.ref_name }}
