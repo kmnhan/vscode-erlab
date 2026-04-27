@@ -1,6 +1,6 @@
 # VS Code Extension for xarray Objects (with optional ERLab tools)
 
-[![VS Code Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/khan.erlab?label=marketplace)](https://marketplace.visualstudio.com/items?itemName=khan.erlab)
+[![VS Code Marketplace Version](https://vsmarketplacebadges.dev/version-short/khan.erlab.svg)](https://marketplace.visualstudio.com/items?itemName=khan.erlab)
 [![Open VSX Version](https://img.shields.io/open-vsx/v/khan/erlab)](https://open-vsx.org/extension/khan/erlab)
 
 This extension adds a dedicated xarray Objects panel for Jupyter and marimo notebooks,
