@@ -9,18 +9,22 @@ import * as vscode from 'vscode';
 // Infrastructure
 import { initializeLogger, logger } from './logger';
 import {
+	buildConfiguredKernelExecutionOptions,
 	executeInKernel,
 	executeInKernelForOutput,
 	extractLastJsonLine,
 	getKernelForNotebook,
+	shutdownKernelClient,
 	type KernelLike,
 } from './kernel';
 import {
 	getActiveNotebookUri,
 	getNotebookDocumentForCellDocument,
 	getNotebookUriForDocument,
+	initializeNotebookUriIndex,
 	isSupportedNotebookCellDocument,
 	isSupportedNotebookLanguage,
+	isSupportedNotebookType,
 	resolveNotebookUri,
 } from './notebook';
 import { findNotebookDefinitionLocation } from './notebook/definitionSearch';
@@ -45,17 +49,35 @@ import {
 // Features
 import {
 	DATA_ARRAY_CONTEXT,
+	DATA_ARRAY_WATCH_AVAILABLE_CONTEXT,
 	DATA_ARRAY_WATCHED_CONTEXT,
 	formatXarrayLabel,
+	getXarrayListAutoRefreshDelayMs,
 	refreshXarrayCache,
-	isXarrayInCache,
+	isXarrayListStale,
+	shouldAutoRefreshXarrayList,
 	getCachedXarrayEntry,
+	markXarrayCacheStale,
 	PinnedXarrayStore,
+	shutdownXarrayService,
 	XarrayPanelProvider,
 	XarrayDetailViewProvider,
 	type XarrayObjectType,
 } from './features/xarray';
 import { registerXarrayHoverProvider } from './features/hover';
+import { setNonBlockingTimeout } from './timers';
+
+let isShuttingDown = false;
+let shutdownExtensionResources: (() => void) | undefined;
+
+function runExtensionShutdown(): void {
+	if (isShuttingDown) {
+		return;
+	}
+	isShuttingDown = true;
+	shutdownExtensionResources?.();
+	shutdownExtensionResources = undefined;
+}
 
 /**
  * Get the variable name at the current selection.
@@ -87,6 +109,9 @@ function getLastLineVariable(document: vscode.TextDocument): string | undefined 
  * Show magic output in the status bar.
  */
 function showMagicOutput(output: string): void {
+	if (isShuttingDown) {
+		return;
+	}
 	const trimmed = output.trim();
 	if (!trimmed) {
 		return;
@@ -97,11 +122,27 @@ function showMagicOutput(output: string): void {
 }
 
 function showErlabInfo(message: string): void {
+	if (isShuttingDown) {
+		return;
+	}
 	void vscode.window.showInformationMessage(`erlab: ${message}`);
 }
 
 function showErlabError(message: string): void {
+	if (isShuttingDown) {
+		return;
+	}
 	void vscode.window.showErrorMessage(`erlab: ${message}`);
+}
+
+function buildMagicExecutionOptions(
+	executionKind: 'gui' | 'helper',
+	operation: string
+) {
+	return buildConfiguredKernelExecutionOptions(operation, {
+		interruptOnTimeout: executionKind === 'helper',
+		startedTimeoutPolicy: executionKind === 'gui' ? 'detach' : 'reject',
+	});
 }
 
 const ERLAB_AVAILABLE_CONTEXT = 'erlab.hasErlab';
@@ -139,6 +180,9 @@ function isErlabAvailable(notebookUri: vscode.Uri | undefined): boolean {
 }
 
 async function setErlabContext(value: boolean): Promise<void> {
+	if (isShuttingDown) {
+		return;
+	}
 	if (currentErlabContext === value) {
 		return;
 	}
@@ -152,6 +196,9 @@ async function checkErlabAvailability(
 	kernel: KernelLike,
 	options?: { force?: boolean }
 ): Promise<boolean | undefined> {
+	if (isShuttingDown) {
+		return;
+	}
 	const cached = erlabAvailabilityByKernel.get(kernel);
 	if (!options?.force && typeof cached === 'boolean') {
 		setNotebookErlabAvailability(notebookUri, cached, kernel);
@@ -179,6 +226,9 @@ async function checkErlabAvailability(
 					interruptOnTimeout: false,
 				}
 			);
+			if (isShuttingDown) {
+				return;
+			}
 			const line = extractLastJsonLine(output);
 			if (!line) {
 				throw new Error('Missing erlab availability response.');
@@ -208,11 +258,17 @@ async function updateErlabContextForNotebook(
 	notebookUri: vscode.Uri | undefined,
 	options?: { force?: boolean }
 ): Promise<void> {
+	if (isShuttingDown) {
+		return;
+	}
 	if (!notebookUri) {
 		await setErlabContext(false);
 		return;
 	}
 	const kernel = await getKernelForNotebook(notebookUri);
+	if (isShuttingDown) {
+		return;
+	}
 	if (!kernel) {
 		setNotebookErlabAvailability(notebookUri, false);
 		await setErlabContext(false);
@@ -234,6 +290,9 @@ async function updateErlabContextForNotebook(
 	}
 
 	const available = await checkErlabAvailability(notebookUri, kernel, options);
+	if (isShuttingDown) {
+		return;
+	}
 	if (typeof available === 'boolean') {
 		await setErlabContext(available);
 	}
@@ -241,9 +300,12 @@ async function updateErlabContextForNotebook(
 
 // This method is called when your extension is activated
 export function activate(context: vscode.ExtensionContext) {
+	isShuttingDown = false;
+	shutdownExtensionResources = undefined;
 	initializeLogger(context);
 	logger.info('Erlab extension activated');
 	void setErlabContext(false);
+	const notebookUriIndexDisposable = initializeNotebookUriIndex();
 
 	// ─────────────────────────────────────────────────────────────────────────
 	// Magic command registration helper
@@ -253,27 +315,37 @@ export function activate(context: vscode.ExtensionContext) {
 		magicName: string,
 		buildArgs: (variableName: string) => string,
 		buildMagicCode?: (variableName: string) => string,
-		onDidExecute?: (variableName: string, document: vscode.TextDocument) => void | Promise<void>,
-		buildMarimoCode?: (variableName: string) => string
+		onDidExecute?: (
+			context: { variableName: string; notebookUri: vscode.Uri; document?: vscode.TextDocument }
+		) => void | Promise<void>,
+		buildMarimoCode?: (variableName: string) => string,
+		executionKind: 'gui' | 'helper' = 'helper'
 	): vscode.Disposable => vscode.commands.registerCommand(commandId, async (args?: MagicCommandArgs) => {
 		try {
-			const editor = vscode.window.activeTextEditor;
-			if (!editor || !isSupportedNotebookCellDocument(editor.document)) {
+			if (isShuttingDown) {
+				return;
+			}
+			const activeEditor = vscode.window.activeTextEditor;
+			const activeEditorNotebookUri = activeEditor && isSupportedNotebookCellDocument(activeEditor.document)
+				? getNotebookUriForDocument(activeEditor.document)
+				: undefined;
+			const explicitNotebookUri = args?.notebookUri ? resolveNotebookUri(args.notebookUri) : undefined;
+			const notebookUri = explicitNotebookUri ?? activeEditorNotebookUri ?? getActiveNotebookUri();
+			if (!notebookUri) {
 				showErlabInfo('open a Python notebook cell to run the magic.');
 				return;
 			}
-
-			const variableName = args?.variableName ?? getVariableAtSelection(editor);
+			const editor = activeEditorNotebookUri && activeEditorNotebookUri.toString() === notebookUri.toString()
+				? activeEditor
+				: undefined;
+			const variableName = args?.variableName ?? (editor ? getVariableAtSelection(editor) : undefined);
 			if (!variableName) {
 				showErlabInfo('place the cursor on a variable name.');
 				return;
 			}
 
-			await vscode.commands.executeCommand('editor.action.hideHover');
-			const notebookUri = getNotebookUriForDocument(editor.document);
-			if (!notebookUri) {
-				showErlabInfo('open a notebook to run the magic.');
-				return;
+			if (activeEditor) {
+				await vscode.commands.executeCommand('editor.action.hideHover');
 			}
 			await updateErlabContextForNotebook(notebookUri);
 			const cachedAvailability = getCachedErlabAvailability(notebookUri);
@@ -281,26 +353,28 @@ export function activate(context: vscode.ExtensionContext) {
 				showErlabInfo('erlab is not available in this kernel.');
 				return;
 			}
-			const notebook = vscode.workspace.notebookDocuments.find((doc) => doc.uri.toString() === notebookUri.toString());
-			const isMarimoNotebook = notebook?.notebookType === 'marimo-notebook';
-			const isMarimoPath = Boolean(isMarimoNotebook && buildMarimoCode);
-			const code = isMarimoPath
-				? buildMarimoCode!(variableName)
-				: buildMagicCode
-					? buildMagicCode(variableName)
-					: buildMagicInvocation(magicName, buildArgs(variableName));
-			const output = await executeInKernel(notebookUri, code, {
-				operation: `${isMarimoPath ? 'tool' : 'magic'}:${magicName}`,
-			});
-			showMagicOutput(output);
-			if (onDidExecute) {
-				await onDidExecute(variableName, editor.document);
+				const notebook = vscode.workspace.notebookDocuments.find((doc) => doc.uri.toString() === notebookUri.toString());
+				const isMarimoNotebook = notebook?.notebookType === 'marimo-notebook';
+				const isMarimoPath = Boolean(isMarimoNotebook && buildMarimoCode);
+				const code = isMarimoPath
+					? buildMarimoCode!(variableName)
+					: buildMagicCode
+						? buildMagicCode(variableName)
+						: buildMagicInvocation(magicName, buildArgs(variableName));
+				const operation = `${isMarimoPath ? 'tool' : 'magic'}:${magicName}`;
+				const output = await executeInKernel(notebookUri, code, buildMagicExecutionOptions(executionKind, operation));
+				if (isShuttingDown) {
+					return;
+				}
+				showMagicOutput(output);
+				if (onDidExecute && !isShuttingDown) {
+					await onDidExecute({ variableName, notebookUri, document: editor?.document });
+				}
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				showErlabError(message);
 			}
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			showErlabError(message);
-		}
-	});
+		});
 
 	// ─────────────────────────────────────────────────────────────────────────
 	// Core services
@@ -320,9 +394,88 @@ export function activate(context: vscode.ExtensionContext) {
 		'erlabXarrayDetail',
 		xarrayDetailProvider
 	);
+	const notebookCellStatusBarEmitter = new vscode.EventEmitter<void>();
+	const pendingStatusBarRefreshes = new Set<string>();
+	const notebookStatusBarRetryTimers = new Map<string, NodeJS.Timeout>();
+	const clearNotebookStatusBarRetry = (notebookUri?: vscode.Uri): void => {
+		if (!notebookUri) {
+			for (const timer of notebookStatusBarRetryTimers.values()) {
+				clearTimeout(timer);
+			}
+			notebookStatusBarRetryTimers.clear();
+			return;
+		}
+		const cacheKey = notebookUri.toString();
+		const timer = notebookStatusBarRetryTimers.get(cacheKey);
+		if (!timer) {
+			return;
+		}
+		clearTimeout(timer);
+		notebookStatusBarRetryTimers.delete(cacheKey);
+	};
+	const scheduleNotebookStatusBarRefreshRetry = (notebookUri: vscode.Uri): void => {
+		if (isShuttingDown) {
+			return;
+		}
+		const delayMs = getXarrayListAutoRefreshDelayMs(notebookUri);
+		if (typeof delayMs !== 'number') {
+			clearNotebookStatusBarRetry(notebookUri);
+			return;
+		}
+		if (delayMs <= 0) {
+			clearNotebookStatusBarRetry(notebookUri);
+			requestNotebookStatusBarRefresh(notebookUri);
+			return;
+		}
+		clearNotebookStatusBarRetry(notebookUri);
+		const cacheKey = notebookUri.toString();
+		notebookStatusBarRetryTimers.set(
+			cacheKey,
+			setNonBlockingTimeout(() => {
+				notebookStatusBarRetryTimers.delete(cacheKey);
+				if (isShuttingDown) {
+					return;
+				}
+				if (shouldAutoRefreshXarrayList(notebookUri)) {
+					requestNotebookStatusBarRefresh(notebookUri);
+					return;
+				}
+				scheduleNotebookStatusBarRefreshRetry(notebookUri);
+			}, delayMs)
+		);
+	};
+	const requestNotebookStatusBarRefresh = (notebookUri: vscode.Uri): void => {
+		if (isShuttingDown) {
+			return;
+		}
+		const cacheKey = notebookUri.toString();
+		if (pendingStatusBarRefreshes.has(cacheKey)) {
+			return;
+		}
+		pendingStatusBarRefreshes.add(cacheKey);
+		clearNotebookStatusBarRetry(notebookUri);
+		void refreshXarrayCache(notebookUri)
+			.then((result) => {
+				if (result.error) {
+					if (!isShuttingDown && isXarrayListStale(notebookUri)) {
+						scheduleNotebookStatusBarRefreshRetry(notebookUri);
+					}
+					return;
+				}
+				if (!isShuttingDown) {
+					notebookCellStatusBarEmitter.fire();
+				}
+			})
+			.finally(() => {
+				pendingStatusBarRefreshes.delete(cacheKey);
+			});
+	};
 	const requestXarrayRefresh = async (
 		options?: { refreshCache?: boolean; notebookUri?: vscode.Uri }
 	): Promise<void> => {
+		if (isShuttingDown) {
+			return;
+		}
 		const notebookUri = options?.notebookUri ?? getActiveNotebookUri();
 		if (options?.refreshCache) {
 			if (notebookUri) {
@@ -330,16 +483,66 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 			await updateErlabContextForNotebook(notebookUri);
 		}
+		if (isShuttingDown) {
+			return;
+		}
 		xarrayPanelProvider.requestRefresh();
+		notebookCellStatusBarEmitter.fire();
+	};
+	const refreshAfterNotebookExecution = (notebookUri: vscode.Uri): void => {
+		if (isShuttingDown) {
+			return;
+		}
+		const activeNotebook = getActiveNotebookUri();
+		const isActiveNotebook = activeNotebook?.toString() === notebookUri.toString();
+		if (!isActiveNotebook) {
+			markXarrayCacheStale(notebookUri);
+			return;
+		}
+		const treeVisible = xarrayPanelProvider.isVisibleForNotebook(notebookUri);
+		const detailVisible = xarrayDetailProvider.isVisibleForNotebook(notebookUri);
+		if (!treeVisible) {
+			markXarrayCacheStale(notebookUri);
+		}
+		if (treeVisible) {
+			void refreshXarrayCache(notebookUri).finally(() => {
+				if (isShuttingDown) {
+					return;
+				}
+				xarrayPanelProvider.requestRefresh();
+				notebookCellStatusBarEmitter.fire();
+				if (detailVisible) {
+					xarrayDetailProvider.refreshCurrentDetail();
+				}
+			});
+			return;
+		}
+		xarrayPanelProvider.requestRefresh();
+		notebookCellStatusBarEmitter.fire();
+		if (detailVisible) {
+			xarrayDetailProvider.refreshCurrentDetail();
+		}
 	};
 	const xarrayVisibilityDisposable = xarrayTreeView.onDidChangeVisibility(() => {
 		void requestXarrayRefresh();
 	});
 	const xarraySelectionDisposable = xarrayTreeView.onDidChangeSelection((event) => {
+		if (isShuttingDown) {
+			return;
+		}
 		if (event.selection.length === 0) {
 			xarrayDetailProvider.clearDetail();
 		}
 	});
+
+	shutdownExtensionResources = () => {
+		clearSelectionContextRetry();
+		clearNotebookStatusBarRetry();
+		shutdownXarrayService();
+		xarrayPanelProvider.dispose();
+		xarrayDetailProvider.dispose();
+		shutdownKernelClient();
+	};
 
 	// Populate cache on initial activation if there's an active notebook
 	const activeNotebook = getActiveNotebookUri();
@@ -356,10 +559,11 @@ export function activate(context: vscode.ExtensionContext) {
 		'watch',
 		(variableName) => variableName,
 		(variableName) => buildMarimoWatchInvocation(variableName, { unwatch: false }),
-		async (_variableName, document) => {
-			const notebookUri = getNotebookUriForDocument(document);
+		async ({ notebookUri }) => {
 			await requestXarrayRefresh({ refreshCache: true, notebookUri });
-		}
+		},
+		undefined,
+		'helper'
 	);
 
 	const itoolDisposable = registerMagicCommand(
@@ -370,11 +574,12 @@ export function activate(context: vscode.ExtensionContext) {
 			const useManager = vscode.workspace.getConfiguration('erlab').get<boolean>('itool.useManager', true);
 			return buildItoolInvocation(variableName, useManager);
 		},
-		() => requestXarrayRefresh(),
+		({ notebookUri }) => requestXarrayRefresh({ notebookUri }),
 		(variableName) => {
 			const useManager = vscode.workspace.getConfiguration('erlab').get<boolean>('itool.useManager', true);
 			return buildMarimoItoolInvocation(variableName, useManager);
-		}
+		},
+		'gui'
 	);
 
 	const unwatchDisposable = registerMagicCommand(
@@ -382,10 +587,11 @@ export function activate(context: vscode.ExtensionContext) {
 		'watch',
 		(variableName) => `-d ${variableName}`,
 		(variableName) => buildMarimoWatchInvocation(variableName, { unwatch: true }),
-		async (_variableName, document) => {
-			const notebookUri = getNotebookUriForDocument(document);
+		async ({ notebookUri }) => {
 			await requestXarrayRefresh({ refreshCache: true, notebookUri });
-		}
+		},
+		undefined,
+		'helper'
 	);
 
 	// Additional tool magic commands
@@ -395,7 +601,8 @@ export function activate(context: vscode.ExtensionContext) {
 		(variableName) => variableName,
 		undefined,
 		undefined,
-		(variableName) => buildMarimoToolInvocation('ktool', variableName)
+		(variableName) => buildMarimoToolInvocation('ktool', variableName),
+		'gui'
 	);
 
 	const dtoolDisposable = registerMagicCommand(
@@ -404,7 +611,8 @@ export function activate(context: vscode.ExtensionContext) {
 		(variableName) => variableName,
 		undefined,
 		undefined,
-		(variableName) => buildMarimoToolInvocation('dtool', variableName)
+		(variableName) => buildMarimoToolInvocation('dtool', variableName),
+		'gui'
 	);
 
 	const restoolDisposable = registerMagicCommand(
@@ -413,7 +621,8 @@ export function activate(context: vscode.ExtensionContext) {
 		(variableName) => variableName,
 		undefined,
 		undefined,
-		(variableName) => buildMarimoToolInvocation('restool', variableName)
+		(variableName) => buildMarimoToolInvocation('restool', variableName),
+		'gui'
 	);
 
 	const meshtoolDisposable = registerMagicCommand(
@@ -422,7 +631,8 @@ export function activate(context: vscode.ExtensionContext) {
 		(variableName) => variableName,
 		undefined,
 		undefined,
-		(variableName) => buildMarimoToolInvocation('meshtool', variableName)
+		(variableName) => buildMarimoToolInvocation('meshtool', variableName),
+		'gui'
 	);
 
 	const ftoolDisposable = registerMagicCommand(
@@ -431,7 +641,8 @@ export function activate(context: vscode.ExtensionContext) {
 		(variableName) => variableName,
 		undefined,
 		undefined,
-		(variableName) => buildMarimoToolInvocation('ftool', variableName)
+		(variableName) => buildMarimoToolInvocation('ftool', variableName),
+		'gui'
 	);
 
 	const goldtoolDisposable = registerMagicCommand(
@@ -440,7 +651,8 @@ export function activate(context: vscode.ExtensionContext) {
 		(variableName) => variableName,
 		undefined,
 		undefined,
-		(variableName) => buildMarimoToolInvocation('goldtool', variableName)
+		(variableName) => buildMarimoToolInvocation('goldtool', variableName),
+		'gui'
 	);
 
 	// Quick Pick command for other tools
@@ -474,36 +686,156 @@ export function activate(context: vscode.ExtensionContext) {
 	// ─────────────────────────────────────────────────────────────────────────
 	// Selection and context tracking
 	// ─────────────────────────────────────────────────────────────────────────
+	let selectionContextVersion = 0;
+	let selectionContextRetryTimer: NodeJS.Timeout | undefined;
+	const nextSelectionContextVersion = (): number => {
+		selectionContextVersion += 1;
+		return selectionContextVersion;
+	};
+	const isCurrentSelectionContextVersion = (version: number): boolean => {
+		return !isShuttingDown && version === selectionContextVersion;
+	};
+	const clearSelectionContextRetry = (): void => {
+		if (!selectionContextRetryTimer) {
+			return;
+		}
+		clearTimeout(selectionContextRetryTimer);
+		selectionContextRetryTimer = undefined;
+	};
+	const applySelectionContexts = async (
+		version: number,
+		isDataArray: boolean,
+		isWatchAvailable: boolean,
+		isWatched: boolean
+	): Promise<void> => {
+		if (!isCurrentSelectionContextVersion(version)) {
+			return;
+		}
+		await vscode.commands.executeCommand('setContext', DATA_ARRAY_CONTEXT, isDataArray);
+		if (!isCurrentSelectionContextVersion(version)) {
+			return;
+		}
+		await vscode.commands.executeCommand(
+			'setContext',
+			DATA_ARRAY_WATCH_AVAILABLE_CONTEXT,
+			isWatchAvailable
+		);
+		if (!isCurrentSelectionContextVersion(version)) {
+			return;
+		}
+		await vscode.commands.executeCommand('setContext', DATA_ARRAY_WATCHED_CONTEXT, isWatched);
+	};
+	const scheduleSelectionContextRetry = (
+		version: number,
+		notebookUri: vscode.Uri,
+		variableName: string
+	): void => {
+		if (!isCurrentSelectionContextVersion(version)) {
+			return;
+		}
+		const delayMs = getXarrayListAutoRefreshDelayMs(notebookUri);
+		if (typeof delayMs !== 'number') {
+			clearSelectionContextRetry();
+			return;
+		}
+		if (delayMs <= 0) {
+			clearSelectionContextRetry();
+			refreshSelectionContexts(version, notebookUri, variableName);
+			return;
+		}
+		clearSelectionContextRetry();
+		selectionContextRetryTimer = setNonBlockingTimeout(() => {
+			selectionContextRetryTimer = undefined;
+			if (!isCurrentSelectionContextVersion(version)) {
+				return;
+			}
+			if (shouldAutoRefreshXarrayList(notebookUri)) {
+				refreshSelectionContexts(version, notebookUri, variableName);
+				return;
+			}
+			scheduleSelectionContextRetry(version, notebookUri, variableName);
+		}, delayMs);
+	};
+	const refreshSelectionContexts = (
+		version: number,
+		notebookUri: vscode.Uri,
+		variableName: string
+	): void => {
+		void refreshXarrayCache(notebookUri).then(async (refreshResult) => {
+			if (!isCurrentSelectionContextVersion(version)) {
+				return;
+			}
+			if (refreshResult.error) {
+				if (isXarrayListStale(notebookUri)) {
+					scheduleSelectionContextRetry(version, notebookUri, variableName);
+				}
+				return;
+			}
+			clearSelectionContextRetry();
+			const refreshedEntry = getCachedXarrayEntry(notebookUri, variableName);
+			const isDataArray = refreshedEntry?.type === 'DataArray';
+			const isWatchAvailable = isDataArray && refreshedEntry.watchAvailable !== false;
+			await applySelectionContexts(
+				version,
+				isDataArray,
+				isWatchAvailable,
+				isWatchAvailable && Boolean(refreshedEntry?.watched)
+			);
+		});
+	};
 	const selectionDisposable = vscode.window.onDidChangeTextEditorSelection(async (event: vscode.TextEditorSelectionChangeEvent) => {
+		if (isShuttingDown) {
+			return;
+		}
+		const selectionVersion = nextSelectionContextVersion();
+		clearSelectionContextRetry();
 		if (!event.textEditor || !isSupportedNotebookCellDocument(event.textEditor.document)) {
-			await vscode.commands.executeCommand('setContext', DATA_ARRAY_CONTEXT, false);
+			await applySelectionContexts(selectionVersion, false, false, false);
 			return;
 		}
 
 		const variableName = getVariableAtSelection(event.textEditor);
 		if (!variableName || !isValidPythonIdentifier(variableName)) {
-			await vscode.commands.executeCommand('setContext', DATA_ARRAY_CONTEXT, false);
-			await vscode.commands.executeCommand('setContext', DATA_ARRAY_WATCHED_CONTEXT, false);
+			await applySelectionContexts(selectionVersion, false, false, false);
 			return;
 		}
 
-		// Use synchronous cache lookup - no kernel query on keystroke
+		// Namespace-level staleness invalidates cached hits until the list is refreshed.
 		const notebookUri = getNotebookUriForDocument(event.textEditor.document);
 		if (!notebookUri) {
-			await vscode.commands.executeCommand('setContext', DATA_ARRAY_CONTEXT, false);
-			await vscode.commands.executeCommand('setContext', DATA_ARRAY_WATCHED_CONTEXT, false);
+			await applySelectionContexts(selectionVersion, false, false, false);
 			return;
 		}
-		const entry = getCachedXarrayEntry(notebookUri, variableName);
-		const isDataArray = Boolean(entry);
-		await vscode.commands.executeCommand('setContext', DATA_ARRAY_CONTEXT, isDataArray);
-		await vscode.commands.executeCommand('setContext', DATA_ARRAY_WATCHED_CONTEXT, Boolean(entry?.watched));
+		const listStale = isXarrayListStale(notebookUri);
+		let entry = listStale ? undefined : getCachedXarrayEntry(notebookUri, variableName);
+		if (listStale) {
+			if (shouldAutoRefreshXarrayList(notebookUri)) {
+				refreshSelectionContexts(selectionVersion, notebookUri, variableName);
+			} else {
+				scheduleSelectionContextRetry(selectionVersion, notebookUri, variableName);
+			}
+		}
+		const isDataArray = entry?.type === 'DataArray';
+		const isWatchAvailable = isDataArray && entry?.watchAvailable !== false;
+		await applySelectionContexts(
+			selectionVersion,
+			isDataArray,
+			isWatchAvailable,
+			isWatchAvailable && Boolean(entry?.watched)
+		);
 	});
 
 	const activeEditorDisposable = vscode.window.onDidChangeActiveTextEditor(async (editor?: vscode.TextEditor) => {
+		if (isShuttingDown) {
+			return;
+		}
+		const selectionVersion = nextSelectionContextVersion();
+		clearSelectionContextRetry();
 		if (!editor || !isSupportedNotebookCellDocument(editor.document)) {
-			await vscode.commands.executeCommand('setContext', DATA_ARRAY_CONTEXT, false);
-			await vscode.commands.executeCommand('setContext', DATA_ARRAY_WATCHED_CONTEXT, false);
+			await applySelectionContexts(selectionVersion, false, false, false);
+			if (!getActiveNotebookUri()) {
+				xarrayDetailProvider.clearDetail();
+			}
 			void requestXarrayRefresh();
 			return;
 		}
@@ -511,12 +843,18 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	const activeNotebookDisposable = vscode.window.onDidChangeActiveNotebookEditor(async (editor) => {
+		if (isShuttingDown) {
+			return;
+		}
 		// Refresh cache when switching notebooks (debounced)
 		if (editor) {
 			await requestXarrayRefresh({ refreshCache: true, notebookUri: editor.notebook.uri });
 			return;
 		}
 		await updateErlabContextForNotebook(undefined);
+		if (!getActiveNotebookUri()) {
+			xarrayDetailProvider.clearDetail();
+		}
 		void requestXarrayRefresh();
 	});
 
@@ -524,26 +862,28 @@ export function activate(context: vscode.ExtensionContext) {
 	// Notebook execution tracking
 	// ─────────────────────────────────────────────────────────────────────────
 	const notebookExecutionDisposable = vscode.workspace.onDidChangeNotebookDocument(async (event) => {
-		const activeNotebook = getActiveNotebookUri();
-		if (!activeNotebook) {
+		if (isShuttingDown) {
 			return;
 		}
-		if (event.notebook.uri.toString() !== activeNotebook.toString()) {
+		if (!isSupportedNotebookType(event.notebook.notebookType)) {
 			return;
 		}
+		const notebookUri = event.notebook.uri;
 		const hasExecutionSummary = event.cellChanges.some((change) => change.executionSummary);
 		const hasOutputsChange = event.cellChanges.some((change) => change.outputs);
 		if (hasOutputsChange && !hasExecutionSummary) {
-			xarrayPanelProvider.setExecutionInProgress(true);
-			xarrayDetailProvider.setExecutionInProgress(true);
+			xarrayPanelProvider.setNotebookExecutionInProgress(notebookUri, true);
+			xarrayDetailProvider.setNotebookExecutionInProgress(notebookUri, true);
 			return;
 		}
 		if (hasExecutionSummary) {
-			xarrayPanelProvider.setExecutionInProgress(false);
-			xarrayDetailProvider.setExecutionInProgress(false);
-			// Refresh cache when cell execution completes (debounced + coalesced)
-			void refreshXarrayCache(activeNotebook).then(() => requestXarrayRefresh());
-			void updateErlabContextForNotebook(activeNotebook);
+			xarrayPanelProvider.setNotebookExecutionInProgress(notebookUri, false);
+			xarrayDetailProvider.setNotebookExecutionInProgress(notebookUri, false);
+			refreshAfterNotebookExecution(notebookUri);
+			const activeNotebook = getActiveNotebookUri();
+			if (activeNotebook?.toString() === notebookUri.toString()) {
+				void updateErlabContextForNotebook(notebookUri);
+			}
 		}
 	});
 
@@ -551,10 +891,14 @@ export function activate(context: vscode.ExtensionContext) {
 	// Notebook cell status bar
 	// ─────────────────────────────────────────────────────────────────────────
 	const notebookCellStatusBarProvider: vscode.NotebookCellStatusBarItemProvider = {
+		onDidChangeCellStatusBarItems: notebookCellStatusBarEmitter.event,
 		provideCellStatusBarItems: (
 			cell: vscode.NotebookCell,
 			token: vscode.CancellationToken
 		): vscode.NotebookCellStatusBarItem[] => {
+			if (isShuttingDown) {
+				return [];
+			}
 			if (!isSupportedNotebookLanguage(cell.document.languageId)) {
 				return [];
 			}
@@ -572,6 +916,15 @@ export function activate(context: vscode.ExtensionContext) {
 			if (!isErlabAvailable(notebookUri)) {
 				return [];
 			}
+			if (isXarrayListStale(notebookUri)) {
+				if (shouldAutoRefreshXarrayList(notebookUri)) {
+					requestNotebookStatusBarRefresh(notebookUri);
+				} else {
+					scheduleNotebookStatusBarRefreshRetry(notebookUri);
+				}
+				return [];
+			}
+			clearNotebookStatusBarRetry(notebookUri);
 			const entry = getCachedXarrayEntry(notebookUri, variableName);
 			if (token.isCancellationRequested || !entry) {
 				return [];
@@ -589,7 +942,7 @@ export function activate(context: vscode.ExtensionContext) {
 			item.command = {
 				command: 'erlab.itool',
 				title: 'Open in ImageTool',
-				arguments: [{ variableName }]
+				arguments: [{ variableName, notebookUri: notebookUri.toString() }],
 			};
 			item.tooltip = label;
 			return [item];
@@ -742,15 +1095,15 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 			await vscode.commands.executeCommand('editor.action.hideHover');
 			const isPinned = pinnedStore.isPinned(notebookUri, variableName);
-			if (isPinned) {
-				await pinnedStore.unpin(notebookUri, variableName);
-			} else {
-				await pinnedStore.pin(notebookUri, variableName);
-			}
-			void requestXarrayRefresh();
-			if (!isPinned && normalized?.reveal) {
-				await vscode.commands.executeCommand('workbench.view.extension.erlab');
-				await xarrayPanelProvider.reveal(variableName);
+				if (isPinned) {
+					await pinnedStore.unpin(notebookUri, variableName);
+				} else {
+					await pinnedStore.pin(notebookUri, variableName);
+				}
+				void requestXarrayRefresh({ notebookUri });
+				if (!isPinned && normalized?.reveal) {
+					await vscode.commands.executeCommand('workbench.view.extension.erlab');
+					await xarrayPanelProvider.reveal(variableName);
 			}
 		}
 	);
@@ -767,13 +1120,13 @@ export function activate(context: vscode.ExtensionContext) {
 			if (!notebookUri) {
 				showErlabInfo('open a notebook to pin DataArrays.');
 				return;
+				}
+				if (!pinnedStore.isPinned(notebookUri, variableName)) {
+					await pinnedStore.pin(notebookUri, variableName);
+					void requestXarrayRefresh({ notebookUri });
+				}
 			}
-			if (!pinnedStore.isPinned(notebookUri, variableName)) {
-				await pinnedStore.pin(notebookUri, variableName);
-				void requestXarrayRefresh();
-			}
-		}
-	);
+		);
 
 	const unpinDisposable = vscode.commands.registerCommand(
 		'erlab.xarray.unpin',
@@ -787,13 +1140,13 @@ export function activate(context: vscode.ExtensionContext) {
 			if (!notebookUri) {
 				showErlabInfo('open a notebook to unpin DataArrays.');
 				return;
+				}
+				if (pinnedStore.isPinned(notebookUri, variableName)) {
+					await pinnedStore.unpin(notebookUri, variableName);
+					void requestXarrayRefresh({ notebookUri });
+				}
 			}
-			if (pinnedStore.isPinned(notebookUri, variableName)) {
-				await pinnedStore.unpin(notebookUri, variableName);
-				void requestXarrayRefresh();
-			}
-		}
-	);
+		);
 
 	const toggleWatchDisposable = vscode.commands.registerCommand(
 		'erlab.xarray.toggleWatch',
@@ -809,10 +1162,13 @@ export function activate(context: vscode.ExtensionContext) {
 				return;
 			}
 			const watched = Boolean(normalized?.watched);
-			await vscode.commands.executeCommand(watched ? 'erlab.unwatch' : 'erlab.watch', { variableName });
-			void requestXarrayRefresh();
-		}
-	);
+				await vscode.commands.executeCommand(
+					watched ? 'erlab.unwatch' : 'erlab.watch',
+					{ variableName, notebookUri: notebookUri.toString() }
+				);
+				void requestXarrayRefresh({ notebookUri });
+			}
+		);
 
 	const dataArrayWatchDisposable = vscode.commands.registerCommand(
 		'erlab.xarray.watch',
@@ -822,10 +1178,14 @@ export function activate(context: vscode.ExtensionContext) {
 			if (!variableName) {
 				return;
 			}
-			await vscode.commands.executeCommand('erlab.watch', { variableName });
-			void requestXarrayRefresh();
-		}
-	);
+			const notebookUri = resolveNotebookUri(normalized?.notebookUri);
+				await vscode.commands.executeCommand('erlab.watch', {
+					variableName,
+					notebookUri: notebookUri?.toString(),
+				});
+				void requestXarrayRefresh({ notebookUri });
+			}
+		);
 
 	const dataArrayUnwatchDisposable = vscode.commands.registerCommand(
 		'erlab.xarray.unwatch',
@@ -835,10 +1195,14 @@ export function activate(context: vscode.ExtensionContext) {
 			if (!variableName) {
 				return;
 			}
-			await vscode.commands.executeCommand('erlab.unwatch', { variableName });
-			void requestXarrayRefresh();
-		}
-	);
+			const notebookUri = resolveNotebookUri(normalized?.notebookUri);
+				await vscode.commands.executeCommand('erlab.unwatch', {
+					variableName,
+					notebookUri: notebookUri?.toString(),
+				});
+				void requestXarrayRefresh({ notebookUri });
+			}
+		);
 
 	const openInImageToolDisposable = vscode.commands.registerCommand(
 		'erlab.xarray.openInImageTool',
@@ -852,7 +1216,11 @@ export function activate(context: vscode.ExtensionContext) {
 				showErlabInfo('ImageTool supports DataArrays with ndim < 5.');
 				return;
 			}
-			await vscode.commands.executeCommand('erlab.itool', { variableName });
+			const notebookUri = resolveNotebookUri(normalized?.notebookUri);
+			await vscode.commands.executeCommand('erlab.itool', {
+				variableName,
+				notebookUri: notebookUri?.toString(),
+			});
 		}
 	);
 
@@ -957,7 +1325,11 @@ export function activate(context: vscode.ExtensionContext) {
 		openInImageToolDisposable,
 		goToDefinitionDisposable,
 		showOutputDisposable,
+		notebookUriIndexDisposable,
+		notebookCellStatusBarEmitter,
+		xarrayPanelProvider,
 		xarrayTreeView,
+		xarrayDetailProvider,
 		xarrayDetailDisposable,
 		xarrayVisibilityDisposable,
 		xarraySelectionDisposable
@@ -965,4 +1337,6 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 // This method is called when your extension is deactivated
-export function deactivate() { }
+export function deactivate() {
+	runExtensionShutdown();
+}

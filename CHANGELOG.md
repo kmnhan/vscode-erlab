@@ -2,6 +2,20 @@
 
 All notable changes to the extension will be documented in this file.
 
+## [Unreleased]
+
+- Add `erlab.kernel.commandTimeoutMs` to configure ERLab kernel command timeouts, with
+  safer timeout handling that avoids interrupting unrelated queued user code.
+- Fix ERLab GUI tool launches so a started Qt window can continue opening after the
+  local command timeout instead of showing a misleading timeout error.
+- Fix xarray discovery with older `erlab` versions by hiding unavailable watch controls
+  instead of failing the Objects panel query.
+- Keep xarray Objects, Detail, hover, and context actions tied to the correct notebook
+  as focus changes, background executions finish, or stale refreshes complete.
+- Keep cached xarray entries visible after temporary refresh errors and wait before
+  retrying the kernel query.
+- Prevent ERLab-owned timers and kernel waits from delaying VS Code shutdown.
+
 ## [v0.5.0] - 2026-02-15
 
 - Add marimo notebook support for xarray workflows and ERLab interactive tools,

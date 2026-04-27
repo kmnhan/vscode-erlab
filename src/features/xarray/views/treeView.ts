@@ -5,9 +5,17 @@ import * as vscode from 'vscode';
 import type { PinnedXarrayStore } from './pinnedStore';
 import type { XarrayEntry, XarrayObjectType } from '../types';
 import { formatDimsWithSizes } from '../formatting';
-import { refreshXarrayCache, getCachedXarrayEntries, getPendingRefresh } from '../service';
+import {
+	refreshXarrayCache,
+	getCachedXarrayEntries,
+	getPendingRefresh,
+	getXarrayListAutoRefreshDelayMs,
+	isXarrayListStale,
+	shouldAutoRefreshXarrayList,
+} from '../service';
 import { getActiveNotebookUri } from '../../../notebook';
 import { logger } from '../../../logger';
+import { setNonBlockingTimeout } from '../../../timers';
 
 const TYPE_FILTER_STORAGE_KEY = 'erlab.xarray.typeFilters';
 const DEFAULT_TYPE_FILTERS: XarrayObjectType[] = ['DataArray', 'Dataset', 'DataTree'];
@@ -27,7 +35,7 @@ function normalizeTypeFilters(value: unknown): XarrayObjectType[] {
 	return normalized.length > 0 ? normalized : DEFAULT_TYPE_FILTERS;
 }
 
-export class XarrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
+export class XarrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeItem>, vscode.Disposable {
 	private readonly pinnedStore: PinnedXarrayStore;
 	private readonly onDidAccessNotebook?: (notebookUri: vscode.Uri) => void | Promise<void>;
 	private readonly typeFilterState?: vscode.Memento;
@@ -37,9 +45,12 @@ export class XarrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeI
 	private lastItems: vscode.TreeItem[] = [];
 	private refreshPending = false;
 	private refreshTimer: NodeJS.Timeout | undefined;
-	private executionInProgress = false;
+	private passiveRetryTimer: NodeJS.Timeout | undefined;
+	private passiveRetryNotebookKey: string | undefined;
 	private pendingSelection: { variableName: string; focus: boolean } | undefined;
 	private typeFilters: Set<XarrayObjectType>;
+	private readonly executingNotebookKeys = new Set<string>();
+	private disposed = false;
 
 	readonly onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
 
@@ -58,6 +69,9 @@ export class XarrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeI
 	}
 
 	setTreeView(view: vscode.TreeView<vscode.TreeItem>): void {
+		if (this.disposed) {
+			return;
+		}
 		this.treeView = view;
 		void this.applyPendingSelection();
 	}
@@ -74,8 +88,63 @@ export class XarrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeI
 		this.requestRefresh();
 	}
 
+	private clearPassiveRetryTimer(notebookUri?: vscode.Uri): void {
+		if (!this.passiveRetryTimer) {
+			return;
+		}
+		if (
+			notebookUri
+			&& this.passiveRetryNotebookKey
+			&& this.passiveRetryNotebookKey !== notebookUri.toString()
+		) {
+			return;
+		}
+		clearTimeout(this.passiveRetryTimer);
+		this.passiveRetryTimer = undefined;
+		this.passiveRetryNotebookKey = undefined;
+	}
+
+	private schedulePassiveRetryRefresh(notebookUri: vscode.Uri): void {
+		const delayMs = getXarrayListAutoRefreshDelayMs(notebookUri);
+		if (typeof delayMs !== 'number' || delayMs <= 0) {
+			this.clearPassiveRetryTimer(notebookUri);
+			return;
+		}
+		const notebookKey = notebookUri.toString();
+		if (this.passiveRetryTimer && this.passiveRetryNotebookKey === notebookKey) {
+			return;
+		}
+		this.clearPassiveRetryTimer();
+		this.passiveRetryNotebookKey = notebookKey;
+		this.passiveRetryTimer = setNonBlockingTimeout(() => {
+			this.passiveRetryTimer = undefined;
+			this.passiveRetryNotebookKey = undefined;
+			this.requestRefresh();
+		}, delayMs);
+	}
+
+	private isNotebookExecutionInProgress(notebookUri: vscode.Uri | undefined): boolean {
+		return notebookUri ? this.executingNotebookKeys.has(notebookUri.toString()) : false;
+	}
+
+	isVisibleForNotebook(notebookUri: vscode.Uri): boolean {
+		if (this.disposed || !this.treeView?.visible) {
+			return false;
+		}
+		return this.getResolvedNotebookUri()?.toString() === notebookUri.toString();
+	}
+
 	requestRefresh(): void {
-		if (this.executionInProgress) {
+		if (this.disposed) {
+			return;
+		}
+		const refreshNotebookUri = this.getResolvedNotebookUri();
+		if (refreshNotebookUri) {
+			this.clearPassiveRetryTimer(refreshNotebookUri);
+		} else {
+			this.clearPassiveRetryTimer();
+		}
+		if (this.isNotebookExecutionInProgress(refreshNotebookUri)) {
 			this.refreshPending = true;
 			if (this.refreshTimer) {
 				clearTimeout(this.refreshTimer);
@@ -97,31 +166,51 @@ export class XarrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeI
 		if (this.refreshTimer) {
 			clearTimeout(this.refreshTimer);
 		}
-		this.refreshTimer = setTimeout(() => {
+		this.refreshTimer = setNonBlockingTimeout(() => {
+			if (this.disposed) {
+				return;
+			}
 			this.refreshTimer = undefined;
 			this.onDidChangeTreeDataEmitter.fire(undefined);
 		}, 250);
 		logger.trace('Tree view refresh scheduled');
 	}
 
-	setExecutionInProgress(active: boolean): void {
-		this.executionInProgress = active;
-		if (!active && this.refreshPending) {
+	setNotebookExecutionInProgress(notebookUri: vscode.Uri, active: boolean): void {
+		if (this.disposed) {
+			return;
+		}
+		const notebookKey = notebookUri.toString();
+		if (active) {
+			this.executingNotebookKeys.add(notebookKey);
+			return;
+		}
+		this.executingNotebookKeys.delete(notebookKey);
+		if (this.refreshPending && this.isVisibleForNotebook(notebookUri)) {
 			this.requestRefresh();
 		}
 	}
 
 	async reveal(variableName: string): Promise<void> {
+		if (this.disposed) {
+			return;
+		}
 		this.pendingSelection = { variableName, focus: true };
 		await this.revealItem(variableName, true);
 	}
 
 	async select(variableName: string): Promise<void> {
+		if (this.disposed) {
+			return;
+		}
 		this.pendingSelection = { variableName, focus: false };
 		await this.revealItem(variableName, false);
 	}
 
 	private async revealItem(variableName: string, focus: boolean): Promise<void> {
+		if (this.disposed) {
+			return;
+		}
 		const item = this.itemsByName.get(variableName);
 		if (!item || !this.treeView) {
 			return;
@@ -135,6 +224,9 @@ export class XarrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeI
 	}
 
 	private async applyPendingSelection(): Promise<void> {
+		if (this.disposed) {
+			return;
+		}
 		if (!this.pendingSelection || !this.treeView || !this.treeView.visible) {
 			return;
 		}
@@ -159,44 +251,76 @@ export class XarrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeI
 		return;
 	}
 
-	async getChildren(): Promise<vscode.TreeItem[]> {
-		if (this.executionInProgress) {
-			return this.lastItems.length > 0
-				? this.lastItems
-				: [new XarrayMessageItem('Refreshing after cell execution…')];
-		}
+	private getResolvedNotebookUri(): vscode.Uri | undefined {
+		return getActiveNotebookUri();
+	}
 
-		const notebookUri = getActiveNotebookUri();
+	async getChildren(): Promise<vscode.TreeItem[]> {
+		if (this.disposed) {
+			return [];
+		}
+		const notebookUri = this.getResolvedNotebookUri();
 		if (!notebookUri) {
+			this.clearPassiveRetryTimer();
 			this.itemsByName.clear();
 			this.lastItems = [new XarrayMessageItem('Open a notebook to see xarray objects.')];
 			return this.lastItems;
 		}
+		if (this.isNotebookExecutionInProgress(notebookUri)) {
+			return this.lastItems.length > 0
+				? this.lastItems
+				: [new XarrayMessageItem('Refreshing after cell execution…')];
+		}
 		void this.onDidAccessNotebook?.(notebookUri);
-		// Try to get cached entries first
-		let entries = getCachedXarrayEntries(notebookUri);
-		if (entries.length === 0) {
+		const cachedEntries = getCachedXarrayEntries(notebookUri);
+		let entries = cachedEntries;
+		const listStale = isXarrayListStale(notebookUri);
+		const shouldAutoRefresh = shouldAutoRefreshXarrayList(notebookUri);
+		if (listStale && !shouldAutoRefresh) {
+			this.schedulePassiveRetryRefresh(notebookUri);
+		} else {
+			this.clearPassiveRetryTimer(notebookUri);
+		}
+		const needsRefresh = listStale && shouldAutoRefresh;
+		if (needsRefresh) {
 			// Check if there's already a refresh in progress, await it instead of triggering a new one
 			const pending = getPendingRefresh(notebookUri);
 			if (pending) {
 				logger.trace('Tree view awaiting pending refresh');
 				const result = await pending;
 				if (result.error) {
-					this.itemsByName.clear();
-					this.lastItems = [new XarrayMessageItem(result.error)];
-					return this.lastItems;
+					this.schedulePassiveRetryRefresh(notebookUri);
+					if (cachedEntries.length > 0) {
+						entries = cachedEntries;
+					} else {
+						this.itemsByName.clear();
+						this.lastItems = [new XarrayMessageItem(result.error)];
+						return this.lastItems;
+					}
+				} else {
+					entries = result.entries;
 				}
-				entries = result.entries;
 			} else {
-				// No pending refresh and cache is empty - trigger one
+				// No pending refresh and cache is stale or empty - trigger one
 				const result = await refreshXarrayCache(notebookUri);
 				if (result.error) {
-					this.itemsByName.clear();
-					this.lastItems = [new XarrayMessageItem(result.error)];
-					return this.lastItems;
+					this.schedulePassiveRetryRefresh(notebookUri);
+					if (cachedEntries.length > 0) {
+						entries = cachedEntries;
+					} else {
+						this.itemsByName.clear();
+						this.lastItems = [new XarrayMessageItem(result.error)];
+						return this.lastItems;
+					}
+				} else {
+					entries = result.entries;
 				}
-				entries = result.entries;
 			}
+		}
+		if (listStale && !shouldAutoRefresh && entries.length === 0) {
+			this.itemsByName.clear();
+			this.lastItems = [new XarrayMessageItem('Waiting to retry xarray refresh after a recent failure.')];
+			return this.lastItems;
 		}
 		if (entries.length === 0) {
 			this.itemsByName.clear();
@@ -241,12 +365,26 @@ export class XarrayPanelProvider implements vscode.TreeDataProvider<vscode.TreeI
 		void this.applyPendingSelection();
 		return this.lastItems;
 	}
-}
 
-/**
- * @deprecated Use XarrayPanelProvider instead
- */
-export const DataArrayPanelProvider = XarrayPanelProvider;
+	dispose(): void {
+		if (this.disposed) {
+			return;
+		}
+		this.disposed = true;
+		if (this.refreshTimer) {
+			clearTimeout(this.refreshTimer);
+			this.refreshTimer = undefined;
+		}
+		this.clearPassiveRetryTimer();
+		this.refreshPending = false;
+		this.pendingSelection = undefined;
+		this.executingNotebookKeys.clear();
+		this.itemsByName.clear();
+		this.lastItems = [];
+		this.treeView = undefined;
+		this.onDidChangeTreeDataEmitter.dispose();
+	}
+}
 
 /**
  * Get the icon for an xarray object type.
@@ -293,6 +431,7 @@ export class XarrayTreeItem extends vscode.TreeItem {
 		this.pinned = pinned;
 
 		const watched = info.type === 'DataArray' && info.watched === true;
+		const watchAvailable = info.type === 'DataArray' && info.watchAvailable !== false;
 		const prefix = getContextValuePrefix(info.type);
 
 		// Build description based on type
@@ -344,7 +483,9 @@ export class XarrayTreeItem extends vscode.TreeItem {
 
 		// Set context value based on type and state
 		if (info.type === 'DataArray') {
-			if (pinned && watched) {
+			if (!watchAvailable) {
+				this.contextValue = pinned ? 'dataArrayItemPinnedNoWatch' : 'dataArrayItemNoWatch';
+			} else if (pinned && watched) {
 				this.contextValue = 'dataArrayItemPinnedWatched';
 			} else if (pinned) {
 				this.contextValue = 'dataArrayItemPinned';
@@ -360,19 +501,9 @@ export class XarrayTreeItem extends vscode.TreeItem {
 	}
 }
 
-/**
- * @deprecated Use XarrayTreeItem instead
- */
-export const DataArrayTreeItem = XarrayTreeItem;
-
 export class XarrayMessageItem extends vscode.TreeItem {
 	constructor(message: string) {
 		super(message, vscode.TreeItemCollapsibleState.None);
 		this.contextValue = 'xarrayMessage';
 	}
 }
-
-/**
- * @deprecated Use XarrayMessageItem instead
- */
-export const DataArrayMessageItem = XarrayMessageItem;

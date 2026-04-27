@@ -8,7 +8,10 @@ import { encodeCommandArgs } from '../../commands';
 import {
 	getCachedXarrayEntry,
 	hasXarrayEntryDetails,
+	isXarrayListStale,
 	isXarrayEntryStale,
+	shouldAutoRefreshXarrayList,
+	refreshXarrayCache,
 	refreshXarrayEntry,
 } from '../xarray/service';
 import { formatXarrayLabel } from '../xarray/formatting';
@@ -37,12 +40,20 @@ export function registerXarrayHoverProvider(
 				return;
 			}
 
-			// Use cache lookup first; only refresh known DataArrays on demand.
+			// Namespace-level staleness invalidates cached hits, so refresh before showing actions.
 			const notebookUri = getNotebookUriForDocument(document);
 			if (!notebookUri) {
 				return;
 			}
-			let info = getCachedXarrayEntry(notebookUri, variableName);
+			const listStale = isXarrayListStale(notebookUri);
+			let info = listStale ? undefined : getCachedXarrayEntry(notebookUri, variableName);
+			if (listStale && shouldAutoRefreshXarrayList(notebookUri)) {
+				const refreshedEntries = await refreshXarrayCache(notebookUri);
+				if (refreshedEntries.error) {
+					return;
+				}
+				info = getCachedXarrayEntry(notebookUri, variableName);
+			}
 			if (!info) {
 				return;
 			}
@@ -68,6 +79,7 @@ export function registerXarrayHoverProvider(
 			md.appendMarkdown(`**${info.type}**: ${label}\n\n`);
 
 			const isPinned = pinnedStore.isPinned(notebookUri, variableName);
+			const watchAvailable = info.type === 'DataArray' && info.watchAvailable !== false;
 			const hoverArgs = encodeCommandArgs({
 				variableName,
 				ndim: info.ndim,
@@ -78,35 +90,42 @@ export function registerXarrayHoverProvider(
 			// DataArray: show all actions including watch and ImageTool when ERLab is available.
 			if (info.type === 'DataArray') {
 				if (erlabAvailable) {
-					if (info.watched) {
+					if (!watchAvailable) {
 						md.appendMarkdown(
 							`[$(list-flat) Details](command:erlab.xarray.openDetail?${hoverArgs}) | ` +
-							`[$(eye) Show](command:erlab.watch?${encodeCommandArgs({ variableName })}) | ` +
-							`[$(eye-closed) Unwatch](command:erlab.unwatch?${encodeCommandArgs({ variableName })}) | ` +
 							`[$(empty-window) ImageTool](command:erlab.xarray.openInImageTool?${hoverArgs}) | ` +
-							`[$(pin) ${isPinned ? 'Unpin' : 'Pin'}](command:erlab.xarray.togglePin?${encodeCommandArgs({ variableName, reveal: !isPinned })}) | ` +
-							`[$(ellipsis) More...](command:erlab.xarray.otherTools?${encodeCommandArgs({ variableName })})\n`
+							`[$(pin) ${isPinned ? 'Unpin' : 'Pin'}](command:erlab.xarray.togglePin?${encodeCommandArgs({ variableName, notebookUri: notebookUri.toString(), reveal: !isPinned })}) | ` +
+							`[$(ellipsis) More...](command:erlab.xarray.otherTools?${encodeCommandArgs({ variableName, notebookUri: notebookUri.toString() })})\n`
+						);
+					} else if (info.watched) {
+						md.appendMarkdown(
+							`[$(list-flat) Details](command:erlab.xarray.openDetail?${hoverArgs}) | ` +
+							`[$(eye) Show](command:erlab.watch?${encodeCommandArgs({ variableName, notebookUri: notebookUri.toString() })}) | ` +
+							`[$(eye-closed) Unwatch](command:erlab.unwatch?${encodeCommandArgs({ variableName, notebookUri: notebookUri.toString() })}) | ` +
+							`[$(empty-window) ImageTool](command:erlab.xarray.openInImageTool?${hoverArgs}) | ` +
+							`[$(pin) ${isPinned ? 'Unpin' : 'Pin'}](command:erlab.xarray.togglePin?${encodeCommandArgs({ variableName, notebookUri: notebookUri.toString(), reveal: !isPinned })}) | ` +
+							`[$(ellipsis) More...](command:erlab.xarray.otherTools?${encodeCommandArgs({ variableName, notebookUri: notebookUri.toString() })})\n`
 						);
 					} else {
 						md.appendMarkdown(
 							`[$(list-flat) Details](command:erlab.xarray.openDetail?${hoverArgs}) | ` +
-							`[$(eye) Watch](command:erlab.watch?${encodeCommandArgs({ variableName })}) | ` +
+							`[$(eye) Watch](command:erlab.watch?${encodeCommandArgs({ variableName, notebookUri: notebookUri.toString() })}) | ` +
 							`[$(empty-window) ImageTool](command:erlab.xarray.openInImageTool?${hoverArgs}) | ` +
-							`[$(pin) ${isPinned ? 'Unpin' : 'Pin'}](command:erlab.xarray.togglePin?${encodeCommandArgs({ variableName, reveal: !isPinned })}) | ` +
-							`[$(ellipsis) More...](command:erlab.xarray.otherTools?${encodeCommandArgs({ variableName })})\n`
+							`[$(pin) ${isPinned ? 'Unpin' : 'Pin'}](command:erlab.xarray.togglePin?${encodeCommandArgs({ variableName, notebookUri: notebookUri.toString(), reveal: !isPinned })}) | ` +
+							`[$(ellipsis) More...](command:erlab.xarray.otherTools?${encodeCommandArgs({ variableName, notebookUri: notebookUri.toString() })})\n`
 						);
 					}
 				} else {
 					md.appendMarkdown(
 						`[$(list-flat) Details](command:erlab.xarray.openDetail?${hoverArgs}) | ` +
-						`[$(pin) ${isPinned ? 'Unpin' : 'Pin'}](command:erlab.xarray.togglePin?${encodeCommandArgs({ variableName, reveal: !isPinned })})\n\n`
+						`[$(pin) ${isPinned ? 'Unpin' : 'Pin'}](command:erlab.xarray.togglePin?${encodeCommandArgs({ variableName, notebookUri: notebookUri.toString(), reveal: !isPinned })})\n\n`
 					);
 				}
 			} else {
 				// Dataset and DataTree: only show Details and Pin
 				md.appendMarkdown(
 					`[$(list-flat) Details](command:erlab.xarray.openDetail?${hoverArgs}) | ` +
-					`[$(pin) ${isPinned ? 'Unpin' : 'Pin'}](command:erlab.xarray.togglePin?${encodeCommandArgs({ variableName, reveal: !isPinned })})\n\n`
+					`[$(pin) ${isPinned ? 'Unpin' : 'Pin'}](command:erlab.xarray.togglePin?${encodeCommandArgs({ variableName, notebookUri: notebookUri.toString(), reveal: !isPinned })})\n\n`
 				);
 			}
 			md.isTrusted = true;
@@ -115,8 +134,3 @@ export function registerXarrayHoverProvider(
 		}
 	});
 }
-
-/**
- * @deprecated Use registerXarrayHoverProvider instead
- */
-export const registerDataArrayHoverProvider = registerXarrayHoverProvider;

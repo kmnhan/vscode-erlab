@@ -111,7 +111,7 @@
         "command": "erlab.xarray.pin",
         "title": "erlab: Pin",
         "icon": "$(pin)",
-        "when": "view == erlabXarrayObjects && viewItem =~ /(dataArrayItem(Watched)?|datasetItem|datatreeItem)$/"
+        "when": "view == erlabXarrayObjects && viewItem =~ /(dataArrayItem(NoWatch|Watched)?|datasetItem|datatreeItem)$/"
       },
       {
         "command": "erlab.xarray.unpin",
@@ -231,12 +231,12 @@
       "editor/context": [
         {
           "command": "erlab.watch",
-          "when": "(resourceExtname == .ipynb || notebookType == 'marimo-notebook') && (editorLangId == python || editorLangId == mo-python) && erlab.isDataArray && erlab.hasErlab",
+          "when": "(resourceExtname == .ipynb || notebookType == 'marimo-notebook') && (editorLangId == python || editorLangId == mo-python) && erlab.isDataArray && erlab.isDataArrayWatchAvailable && erlab.hasErlab",
           "group": "navigation"
         },
         {
           "command": "erlab.unwatch",
-          "when": "(resourceExtname == .ipynb || notebookType == 'marimo-notebook') && (editorLangId == python || editorLangId == mo-python) && erlab.isDataArray && erlab.isDataArrayWatched && erlab.hasErlab",
+          "when": "(resourceExtname == .ipynb || notebookType == 'marimo-notebook') && (editorLangId == python || editorLangId == mo-python) && erlab.isDataArray && erlab.isDataArrayWatchAvailable && erlab.isDataArrayWatched && erlab.hasErlab",
           "group": "navigation"
         },
         {
@@ -275,7 +275,7 @@
         },
         {
           "command": "erlab.xarray.pin",
-          "when": "view == erlabXarrayObjects && viewItem =~ /(dataArrayItem(Watched)?|datasetItem|datatreeItem)$/",
+          "when": "view == erlabXarrayObjects && viewItem =~ /(dataArrayItem(NoWatch|Watched)?|datasetItem|datatreeItem)$/",
           "group": "inline"
         },
         {

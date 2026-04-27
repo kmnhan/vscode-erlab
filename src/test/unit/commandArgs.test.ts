@@ -2,7 +2,7 @@
  * Unit tests for command argument encoding and normalization.
  */
 import * as assert from 'assert';
-import { encodeCommandArgs, normalizeJupyterVariableViewerArgs } from '../../commands/args';
+import { encodeCommandArgs, normalizeJupyterVariableViewerArgs, normalizeXarrayArgs } from '../../commands/args';
 
 suite('Command Args', () => {
 	suite('encodeCommandArgs', () => {
@@ -105,6 +105,18 @@ suite('Command Args', () => {
 			});
 			assert.strictEqual(result?.variableName, 'data');
 			assert.strictEqual(result?.type, 'DataTree');
+		});
+	});
+
+	suite('normalizeXarrayArgs', () => {
+		test('preserves explicit notebookUri on plain command args', () => {
+			const args = {
+				variableName: 'data',
+				notebookUri: 'file:///path/to/notebook.ipynb',
+				type: 'DataArray' as const,
+			};
+			const result = normalizeXarrayArgs(args);
+			assert.deepStrictEqual(result, args);
 		});
 	});
 });

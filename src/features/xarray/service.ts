@@ -2,11 +2,16 @@
  * xarray object service for querying and caching xarray object info from the kernel.
  */
 import * as vscode from 'vscode';
-import { executeInKernelForOutput, extractLastJsonLine } from '../../kernel';
+import {
+	buildConfiguredKernelExecutionOptions,
+	executeInKernelForOutput,
+	extractLastJsonLine,
+} from '../../kernel';
 import { isValidPythonIdentifier } from '../../python/identifiers';
 import { type XarrayEntry, type XarrayObjectType, isDataArrayEntry } from './types';
 import { buildXarrayQueryCode } from './pythonSnippets';
 import { logger } from '../../logger';
+import { setNonBlockingTimeout } from '../../timers';
 
 /**
  * Cache structure: notebookUri -> Map<variableName, XarrayEntry>
@@ -14,7 +19,7 @@ import { logger } from '../../logger';
  */
 const xarrayCache = new Map<string, Map<string, XarrayEntry>>();
 const xarrayCacheMeta = new Map<string, Map<string, { updatedAt: number; hasDetails: boolean }>>();
-const listCacheState = new Map<string, { updatedAt: number }>();
+const listCacheState = new Map<string, { updatedAt: number; stale: boolean; nextAutoRefreshAt: number }>();
 
 /**
  * Track in-flight refresh requests to avoid duplicate kernel queries.
@@ -25,13 +30,17 @@ const pendingEntryRefreshes = new Map<string, Promise<{ entry?: XarrayEntry; err
 /**
  * Debounce timers for refresh requests per notebook.
  */
-const debounceTimers = new Map<string, NodeJS.Timeout>();
+const debounceTimers = new Map<string, {
+	timer: NodeJS.Timeout;
+	resolve: (result: { entries: XarrayEntry[]; error?: string }) => void;
+}>();
 
 /**
  * Debounce delay in milliseconds for coalescing rapid refresh requests.
  */
 const REFRESH_DEBOUNCE_MS = 300;
 const ENTRY_STALE_MS = 2000;
+const PASSIVE_LIST_REFRESH_RETRY_MS = 2000;
 
 /**
  * Get the cache key for a notebook URI.
@@ -76,6 +85,22 @@ function mergeDataArrayEntry(
 		};
 	}
 	return { entry: incoming, hasDetails: false };
+}
+
+function setListCacheState(
+	cacheKey: string,
+	state: { updatedAt: number; stale: boolean; nextAutoRefreshAt: number }
+): void {
+	listCacheState.set(cacheKey, state);
+}
+
+function notePassiveListRefreshFailure(cacheKey: string): void {
+	const existing = listCacheState.get(cacheKey);
+	setListCacheState(cacheKey, {
+		updatedAt: existing?.updatedAt ?? Date.now(),
+		stale: true,
+		nextAutoRefreshAt: Date.now() + PASSIVE_LIST_REFRESH_RETRY_MS,
+	});
 }
 
 /**
@@ -159,17 +184,15 @@ async function doRefreshXarrayCache(
 		const output = await executeInKernelForOutput(
 			notebookUri,
 			buildXarrayQueryCode(undefined, { includeDataArrayDetails: false }),
-			{
-				operation: 'xarray-query',
-			}
+			buildConfiguredKernelExecutionOptions('xarray-query')
 		);
 		const { entries, error } = parseXarrayResponse(output);
 
 		if (error) {
-			// On error, clear the cache for this notebook
+			// On error, clear the cache and back off passive auto-refresh briefly to avoid tight retry loops.
 			xarrayCache.delete(cacheKey);
 			xarrayCacheMeta.delete(cacheKey);
-			listCacheState.delete(cacheKey);
+			notePassiveListRefreshFailure(cacheKey);
 			logger.warn(`xarray cache refresh failed: ${error}`);
 			return { entries: [], error };
 		}
@@ -192,14 +215,14 @@ async function doRefreshXarrayCache(
 		}
 		xarrayCache.set(cacheKey, notebookCache);
 		xarrayCacheMeta.set(cacheKey, notebookMeta);
-		listCacheState.set(cacheKey, { updatedAt });
+		setListCacheState(cacheKey, { updatedAt, stale: false, nextAutoRefreshAt: 0 });
 
 		logger.debug(`xarray cache updated: found ${entries.length} objects`);
 		return { entries };
 	} catch (err) {
 		xarrayCache.delete(cacheKey);
 		xarrayCacheMeta.delete(cacheKey);
-		listCacheState.delete(cacheKey);
+		notePassiveListRefreshFailure(cacheKey);
 		const message = err instanceof Error && err.message
 			? err.message
 			: 'Failed to query the kernel. Ensure the Jupyter kernel is running.';
@@ -233,23 +256,64 @@ export async function refreshXarrayCache(
 	// Clear any existing debounce timer
 	const existingTimer = debounceTimers.get(cacheKey);
 	if (existingTimer) {
-		clearTimeout(existingTimer);
+		clearTimeout(existingTimer.timer);
 	}
 
 	// Create a debounced promise that will execute after the delay
 	const refreshPromise = new Promise<{ entries: XarrayEntry[]; error?: string }>((resolve) => {
-		const timer = setTimeout(async () => {
+		const timer = setNonBlockingTimeout(async () => {
 			debounceTimers.delete(cacheKey);
 			const result = await doRefreshXarrayCache(notebookUri, cacheKey);
 			resolve(result);
 		}, REFRESH_DEBOUNCE_MS);
-		debounceTimers.set(cacheKey, timer);
+		debounceTimers.set(cacheKey, { timer, resolve });
 	});
 
 	// Track this as the pending refresh
 	pendingRefreshes.set(cacheKey, refreshPromise);
 
 	return refreshPromise;
+}
+
+export function shutdownXarrayService(): void {
+	for (const [cacheKey, pendingTimer] of debounceTimers.entries()) {
+		clearTimeout(pendingTimer.timer);
+		pendingRefreshes.delete(cacheKey);
+		pendingTimer.resolve({
+			entries: Array.from(xarrayCache.get(cacheKey)?.values() ?? []),
+		});
+	}
+	debounceTimers.clear();
+}
+
+export function markXarrayCacheStale(notebookUri: vscode.Uri): void {
+	const cacheKey = getNotebookCacheKey(notebookUri);
+	const existing = listCacheState.get(cacheKey);
+	setListCacheState(cacheKey, {
+		updatedAt: existing?.updatedAt ?? Date.now(),
+		stale: true,
+		nextAutoRefreshAt: 0,
+	});
+}
+
+export function isXarrayListStale(notebookUri: vscode.Uri): boolean {
+	const cacheKey = getNotebookCacheKey(notebookUri);
+	return listCacheState.get(cacheKey)?.stale ?? true;
+}
+
+export function shouldAutoRefreshXarrayList(notebookUri: vscode.Uri): boolean {
+	const cacheKey = getNotebookCacheKey(notebookUri);
+	const state = listCacheState.get(cacheKey);
+	return state ? state.stale && Date.now() >= state.nextAutoRefreshAt : true;
+}
+
+export function getXarrayListAutoRefreshDelayMs(notebookUri: vscode.Uri): number | undefined {
+	const cacheKey = getNotebookCacheKey(notebookUri);
+	const state = listCacheState.get(cacheKey);
+	if (!state?.stale) {
+		return;
+	}
+	return Math.max(state.nextAutoRefreshAt - Date.now(), 0);
 }
 
 export async function refreshXarrayEntry(
@@ -270,7 +334,9 @@ export async function refreshXarrayEntry(
 			const output = await executeInKernelForOutput(
 				notebookUri,
 				buildXarrayQueryCode(variableName, { includeDataArrayDetails: options?.includeDetails }),
-				{ operation: options?.reason ? `xarray-entry:${options.reason}` : 'xarray-entry' }
+				buildConfiguredKernelExecutionOptions(
+					options?.reason ? `xarray-entry:${options.reason}` : 'xarray-entry'
+				)
 			);
 			const { entries, error } = parseXarrayResponse(output);
 			if (error) {
@@ -305,11 +371,6 @@ export async function refreshXarrayEntry(
 	pendingEntryRefreshes.set(pendingKey, refreshPromise);
 	return refreshPromise;
 }
-
-/**
- * @deprecated Use refreshXarrayCache instead
- */
-export const refreshDataArrayCache = refreshXarrayCache;
 
 /**
  * Get an xarray entry from the cache (synchronous, no kernel query).
@@ -354,28 +415,6 @@ export function isXarrayEntryStale(
 }
 
 /**
- * @deprecated Use getCachedXarrayEntry instead
- */
-export const getCachedDataArrayEntry = getCachedXarrayEntry;
-
-/**
- * Check if a variable name exists in the cache (synchronous).
- */
-export function isXarrayInCache(
-	notebookUri: vscode.Uri,
-	variableName: string
-): boolean {
-	const cacheKey = getNotebookCacheKey(notebookUri);
-	const notebookCache = xarrayCache.get(cacheKey);
-	return notebookCache?.has(variableName) ?? false;
-}
-
-/**
- * @deprecated Use isXarrayInCache instead
- */
-export const isDataArrayInCache = isXarrayInCache;
-
-/**
  * Get all cached xarray entries for a notebook.
  */
 export function getCachedXarrayEntries(
@@ -391,11 +430,6 @@ export function getCachedXarrayEntries(
 	}
 	return Array.from(notebookCache.values());
 }
-
-/**
- * @deprecated Use getCachedXarrayEntries instead
- */
-export const getCachedDataArrayEntries = getCachedXarrayEntries;
 
 /**
  * Get the pending refresh promise for a notebook, if any.
@@ -414,7 +448,13 @@ export function getPendingRefresh(
 export function __setXarrayCacheForTests(
 	notebookUri: vscode.Uri,
 	entries: XarrayEntry[],
-	options?: { updatedAt?: number; hasDetails?: boolean }
+	options?: {
+		updatedAt?: number;
+		hasDetails?: boolean;
+		stale?: boolean;
+		autoRefreshBlocked?: boolean;
+		nextAutoRefreshAt?: number;
+	}
 ): void {
 	const cacheKey = getNotebookCacheKey(notebookUri);
 	const updatedAt = options?.updatedAt ?? Date.now();
@@ -427,7 +467,12 @@ export function __setXarrayCacheForTests(
 	}
 	xarrayCache.set(cacheKey, notebookCache);
 	xarrayCacheMeta.set(cacheKey, notebookMeta);
-	listCacheState.set(cacheKey, { updatedAt });
+	setListCacheState(cacheKey, {
+		updatedAt,
+		stale: options?.stale ?? false,
+		nextAutoRefreshAt: options?.nextAutoRefreshAt
+			?? (options?.autoRefreshBlocked ? Number.POSITIVE_INFINITY : 0),
+	});
 }
 
 /**
@@ -454,19 +499,11 @@ export function invalidateXarrayCacheEntry(
 }
 
 /**
- * @deprecated Use invalidateXarrayCacheEntry instead
- */
-export const invalidateDataArrayCacheEntry = invalidateXarrayCacheEntry;
-
-/**
  * Clear the entire cache for a notebook.
  */
 export function clearXarrayCache(notebookUri: vscode.Uri): void {
 	const cacheKey = getNotebookCacheKey(notebookUri);
 	xarrayCache.delete(cacheKey);
+	xarrayCacheMeta.delete(cacheKey);
+	listCacheState.delete(cacheKey);
 }
-
-/**
- * @deprecated Use clearXarrayCache instead
- */
-export const clearDataArrayCache = clearXarrayCache;

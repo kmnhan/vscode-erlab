@@ -11,11 +11,26 @@ import * as path from 'path';
 import { execFile, spawn, type ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import * as vscode from 'vscode';
+import * as kernelClient from '../kernel/kernelClient';
 import { buildXarrayQueryCode } from '../features/xarray/pythonSnippets';
-import { __clearXarrayCacheForTests, __setXarrayCacheForTests } from '../features/xarray/service';
+import {
+	__clearXarrayCacheForTests,
+	__setXarrayCacheForTests,
+	getPendingRefresh,
+	refreshXarrayCache,
+	shutdownXarrayService,
+	shouldAutoRefreshXarrayList,
+} from '../features/xarray/service';
 import { getNotebookUriForDocument, resolveNotebookUri } from '../notebook/notebookUris';
-import type { XarrayEntry } from '../features/xarray/types';
+import {
+	DATA_ARRAY_CONTEXT,
+	DATA_ARRAY_WATCH_AVAILABLE_CONTEXT,
+	DATA_ARRAY_WATCHED_CONTEXT,
+	type XarrayObjectType,
+	type XarrayEntry,
+} from '../features/xarray/types';
 import { XarrayPanelProvider } from '../features/xarray/views/treeView';
+import { XarrayDetailViewProvider } from '../features/xarray/views/detailView';
 import { PinnedXarrayStore } from '../features/xarray/views/pinnedStore';
 
 const execFileAsync = promisify(execFile);
@@ -61,6 +76,45 @@ function getUriFromShowTextDocumentArg(value: unknown): vscode.Uri | undefined {
 		}
 	}
 	return;
+}
+
+function createDeferred<T>(): {
+	promise: Promise<T>;
+	resolve: (value: T | PromiseLike<T>) => void;
+	reject: (reason?: unknown) => void;
+} {
+	let resolve!: (value: T | PromiseLike<T>) => void;
+	let reject!: (reason?: unknown) => void;
+	const promise = new Promise<T>((res, rej) => {
+		resolve = res;
+		reject = rej;
+	});
+	return { promise, resolve, reject };
+}
+
+type FakeWebviewView = vscode.WebviewView & {
+	webview: {
+		cspSource: string;
+		html: string;
+		options?: vscode.WebviewOptions;
+	};
+};
+
+function createFakeWebviewView(): FakeWebviewView {
+	return {
+		webview: {
+			cspSource: 'test-csp-source',
+			html: '',
+			options: undefined,
+		},
+		visible: true,
+		title: '',
+		description: undefined,
+		badge: undefined,
+		show: () => undefined,
+		onDidDispose: () => ({ dispose: () => undefined }),
+		onDidChangeVisibility: () => ({ dispose: () => undefined }),
+	} as unknown as FakeWebviewView;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -160,6 +214,87 @@ suite('Extension Integration Tests', () => {
 		// didn't crash when processing selection changes
 		assert.ok(editor.document.uri, 'Editor should still be active');
 	});
+
+	test('Detail view ignores stale async results after a newer selection', async () => {
+		const provider = new XarrayDetailViewProvider();
+		const view = createFakeWebviewView();
+		provider.resolveWebviewView(view);
+
+		const first = createDeferred<string>();
+		const second = createDeferred<string>();
+		const kernelApi = kernelClient as unknown as {
+			executeInKernelForOutput: typeof kernelClient.executeInKernelForOutput;
+		};
+		const originalExecuteInKernelForOutput = kernelApi.executeInKernelForOutput;
+		let callCount = 0;
+		kernelApi.executeInKernelForOutput = async () => {
+			callCount += 1;
+			return callCount === 1 ? first.promise : second.promise;
+		};
+
+		try {
+			const notebookUri = vscode.Uri.file(path.join(os.tmpdir(), 'detail-view-test.ipynb'));
+			const firstRequest = provider.showDetail(notebookUri, 'first', 'DataArray');
+			const secondRequest = provider.showDetail(notebookUri, 'second', 'DataArray');
+
+			second.resolve(JSON.stringify({ html: '<div>second</div>' }));
+			await secondRequest;
+			assert.ok(view.webview.html.includes('second'), 'Expected the newer selection to render');
+
+			first.resolve(JSON.stringify({ html: '<div>first</div>' }));
+			await firstRequest;
+			assert.ok(view.webview.html.includes('second'), 'Expected stale result to be ignored');
+			assert.ok(!view.webview.html.includes('first'), 'Expected older selection not to overwrite the newer one');
+		} finally {
+			kernelApi.executeInKernelForOutput = originalExecuteInKernelForOutput;
+			provider.dispose();
+		}
+	});
+
+	test('Detail view only blocks the notebook that is still executing', async () => {
+		const provider = new XarrayDetailViewProvider();
+		const view = createFakeWebviewView();
+		provider.resolveWebviewView(view);
+
+		const kernelApi = kernelClient as unknown as {
+			executeInKernelForOutput: typeof kernelClient.executeInKernelForOutput;
+		};
+		const originalExecuteInKernelForOutput = kernelApi.executeInKernelForOutput;
+		kernelApi.executeInKernelForOutput = async (_notebookUri, code) => {
+			if (typeof code === 'string' && code.includes('secondary')) {
+				return JSON.stringify({ html: '<div>secondary</div>' });
+			}
+			return JSON.stringify({ html: '<div>primary</div>' });
+		};
+
+		try {
+			const primaryNotebookUri = vscode.Uri.file(path.join(os.tmpdir(), 'detail-primary.ipynb'));
+			const secondaryNotebookUri = vscode.Uri.file(path.join(os.tmpdir(), 'detail-secondary.ipynb'));
+
+			provider.setNotebookExecutionInProgress(primaryNotebookUri, true);
+			await provider.showDetail(primaryNotebookUri, 'primary', 'DataArray');
+			assert.ok(
+				view.webview.html.includes('Waiting for cell execution to finish'),
+				'Expected the executing notebook detail to wait'
+			);
+
+			await provider.showDetail(secondaryNotebookUri, 'secondary', 'DataArray');
+			assert.ok(
+				view.webview.html.includes('secondary'),
+				'Expected a different notebook detail to render immediately'
+			);
+
+			provider.setNotebookExecutionInProgress(primaryNotebookUri, false);
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			assert.ok(
+				view.webview.html.includes('secondary'),
+				'Expected completing the old notebook not to replace the latest detail view'
+			);
+		} finally {
+			kernelApi.executeInKernelForOutput = originalExecuteInKernelForOutput;
+			provider.dispose();
+		}
+	});
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -239,6 +374,49 @@ suite('Notebook Integration Tests', function () {
 		return doc;
 	}
 
+	async function waitFor(condition: () => boolean, timeoutMs: number = 2000): Promise<void> {
+		const startedAt = Date.now();
+		while (!condition()) {
+			if (Date.now() - startedAt >= timeoutMs) {
+				throw new Error('Timed out waiting for notebook state to settle.');
+			}
+			await new Promise((resolve) => setTimeout(resolve, 50));
+		}
+	}
+
+	async function focusOutsideNotebook(): Promise<void> {
+		tempDir = tempDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'erlab-notebook-'));
+		const outsideUri = vscode.Uri.file(path.join(tempDir, `outside-${Date.now()}.py`));
+		await fs.promises.writeFile(outsideUri.fsPath, 'outside = 1', 'utf8');
+		const outsideDocument = await vscode.workspace.openTextDocument(outsideUri);
+		for (let attempt = 0; attempt < 3; attempt += 1) {
+			await vscode.window.showTextDocument(outsideDocument, {
+				preserveFocus: false,
+				preview: false,
+				viewColumn: vscode.ViewColumn.Beside,
+			});
+			if (vscode.window.activeTextEditor?.document.uri.toString() === outsideUri.toString()) {
+				return;
+			}
+			await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+		await waitFor(() => vscode.window.activeTextEditor?.document.uri.toString() === outsideUri.toString(), 5000);
+	}
+
+	async function focusNotebookCell(doc: vscode.NotebookDocument, cellIndex: number = 0): Promise<void> {
+		const cellDocument = doc.getCells()[cellIndex].document;
+		await vscode.window.showTextDocument(cellDocument, {
+			preserveFocus: false,
+			preview: false,
+			viewColumn: vscode.ViewColumn.Active,
+		});
+		await waitFor(
+			() => vscode.window.activeTextEditor?.document.uri.toString() === cellDocument.uri.toString(),
+			5000
+		);
+	}
+
 	test('Notebook cell documents are resolved to their notebook URI', async function () {
 		await activateExtension();
 
@@ -303,6 +481,216 @@ suite('Notebook Integration Tests', function () {
 		__clearXarrayCacheForTests(notebookUri);
 	});
 
+	test('Hover provider hides stale DataArray actions when namespace refresh fails', async function () {
+		await activateExtension();
+
+		try {
+			notebook = await createNotebook('da');
+		} catch (error) {
+			this.skip();
+		}
+
+		const notebookUri = notebook.uri;
+		const entry: XarrayEntry = {
+			variableName: 'da',
+			type: 'DataArray',
+			name: 'da',
+			dims: ['x'],
+			sizes: { x: 10 },
+			shape: [10],
+			dtype: 'float64',
+			ndim: 1,
+			watched: false,
+		};
+		__setXarrayCacheForTests(notebookUri, [entry], { hasDetails: true, stale: true });
+
+		const cellDocument = notebook.getCells()[0].document;
+		const position = new vscode.Position(0, 1);
+		const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
+			'vscode.executeHoverProvider',
+			cellDocument.uri,
+			position
+		);
+		const hoverText = (hovers ?? [])
+			.flatMap((hover) => hover.contents)
+			.map((content) => contentToString(content))
+			.join('\n');
+
+		assert.ok(
+			!/command:erlab\.xarray\.openDetail/.test(hoverText),
+			'Expected stale hover actions to be suppressed after a failed namespace refresh'
+		);
+
+		__clearXarrayCacheForTests(notebookUri);
+	});
+
+	test('Selection context clears watch affordances when watch APIs are unavailable', async function () {
+		await activateExtension();
+
+		try {
+			notebook = await createNotebook('legacy_da');
+		} catch (error) {
+			this.skip();
+		}
+
+		const notebookUri = notebook.uri;
+		await waitFor(() => getPendingRefresh(notebookUri) === undefined);
+		const entry: XarrayEntry = {
+			variableName: 'legacy_da',
+			type: 'DataArray',
+			name: 'legacy_da',
+			dims: ['x'],
+			sizes: { x: 10 },
+			shape: [10],
+			dtype: 'float64',
+			ndim: 1,
+			watched: false,
+			watchAvailable: false,
+		};
+		__setXarrayCacheForTests(notebookUri, [entry], { hasDetails: true });
+
+		const commandsApi = vscode.commands as unknown as {
+			executeCommand: typeof vscode.commands.executeCommand;
+		};
+		const originalExecuteCommand = commandsApi.executeCommand;
+		const contextValues = new Map<string, unknown>();
+		commandsApi.executeCommand = (async (command: string, ...args: unknown[]) => {
+			if (command === 'setContext' && typeof args[0] === 'string') {
+				contextValues.set(args[0], args[1]);
+				return;
+			}
+			return (originalExecuteCommand as (...values: unknown[]) => Thenable<unknown>)(command, ...args);
+		}) as typeof vscode.commands.executeCommand;
+
+		try {
+			const editor = await vscode.window.showTextDocument(notebook.getCells()[0].document);
+			const start = new vscode.Position(0, 0);
+			editor.selection = new vscode.Selection(start, start);
+			const position = new vscode.Position(0, 1);
+			editor.selection = new vscode.Selection(position, position);
+
+			await waitFor(() =>
+				contextValues.get(DATA_ARRAY_CONTEXT) === true
+				&& contextValues.get(DATA_ARRAY_WATCH_AVAILABLE_CONTEXT) === false
+				&& contextValues.get(DATA_ARRAY_WATCHED_CONTEXT) === false
+			);
+		} finally {
+			commandsApi.executeCommand = originalExecuteCommand;
+			__clearXarrayCacheForTests(notebookUri);
+		}
+	});
+
+	test('Selection context retries after passive refresh backoff expires', async function () {
+		await activateExtension();
+
+		try {
+			notebook = await createNotebook('delayed_da');
+		} catch (error) {
+			this.skip();
+		}
+
+		const notebookUri = notebook.uri;
+		await waitFor(() => getPendingRefresh(notebookUri) === undefined);
+		const entry: XarrayEntry = {
+			variableName: 'delayed_da',
+			type: 'DataArray',
+			name: 'delayed_da',
+			dims: ['x'],
+			sizes: { x: 10 },
+			shape: [10],
+			dtype: 'float64',
+			ndim: 1,
+			watched: false,
+		};
+		__setXarrayCacheForTests(notebookUri, [entry], {
+			hasDetails: true,
+			stale: true,
+			nextAutoRefreshAt: Date.now() + 150,
+		});
+
+		const kernelApi = kernelClient as unknown as {
+			executeInKernelForOutput: typeof kernelClient.executeInKernelForOutput;
+		};
+		const originalExecuteInKernelForOutput = kernelApi.executeInKernelForOutput;
+		let refreshCallCount = 0;
+		kernelApi.executeInKernelForOutput = async () => {
+			refreshCallCount += 1;
+			return JSON.stringify([entry]);
+		};
+
+		const commandsApi = vscode.commands as unknown as {
+			executeCommand: typeof vscode.commands.executeCommand;
+		};
+		const originalExecuteCommand = commandsApi.executeCommand;
+		const contextValues = new Map<string, unknown>();
+		commandsApi.executeCommand = (async (command: string, ...args: unknown[]) => {
+			if (command === 'setContext' && typeof args[0] === 'string') {
+				contextValues.set(args[0], args[1]);
+				return;
+			}
+			return (originalExecuteCommand as (...values: unknown[]) => Thenable<unknown>)(command, ...args);
+		}) as typeof vscode.commands.executeCommand;
+
+		try {
+			const editor = await vscode.window.showTextDocument(notebook.getCells()[0].document);
+			const start = new vscode.Position(0, 0);
+			editor.selection = new vscode.Selection(start, start);
+			const position = new vscode.Position(0, 1);
+			editor.selection = new vscode.Selection(position, position);
+
+			await waitFor(() =>
+				refreshCallCount > 0
+				&& contextValues.get(DATA_ARRAY_CONTEXT) === true
+				&& contextValues.get(DATA_ARRAY_WATCH_AVAILABLE_CONTEXT) === true
+				&& contextValues.get(DATA_ARRAY_WATCHED_CONTEXT) === false
+			);
+		} finally {
+			kernelApi.executeInKernelForOutput = originalExecuteInKernelForOutput;
+			commandsApi.executeCommand = originalExecuteCommand;
+			__clearXarrayCacheForTests(notebookUri);
+		}
+	});
+
+	test('Objects view actions preserve explicit notebook routing when focus leaves the notebook', async function () {
+		await activateExtension();
+
+		try {
+			notebook = await createNotebook('tree_da');
+		} catch (error) {
+			this.skip();
+		}
+
+		const outsideDocument = await vscode.workspace.openTextDocument({
+			language: 'python',
+			content: 'outside = 1',
+		});
+		await vscode.window.showTextDocument(outsideDocument);
+
+		const originalShowInformationMessage = vscode.window.showInformationMessage.bind(vscode.window);
+		const windowApi = vscode.window as unknown as {
+			showInformationMessage: typeof vscode.window.showInformationMessage;
+		};
+		const infoMessages: string[] = [];
+		windowApi.showInformationMessage = (async (message: string, ...items: unknown[]) => {
+			infoMessages.push(message);
+			return (originalShowInformationMessage as (...args: unknown[]) => unknown)(message, ...items);
+		}) as typeof vscode.window.showInformationMessage;
+
+		try {
+			await vscode.commands.executeCommand('erlab.xarray.watch', {
+				variableName: 'tree_da',
+				notebookUri: notebook.uri.toString(),
+			});
+		} finally {
+			windowApi.showInformationMessage = originalShowInformationMessage;
+		}
+
+		assert.ok(
+			!infoMessages.includes('erlab: open a Python notebook cell to run the magic.'),
+			'Expected explicit notebookUri to avoid active-editor notebook resolution'
+		);
+	});
+
 	test('Tree view populates items from cached xarray entries', async function () {
 		await activateExtension();
 
@@ -312,6 +700,7 @@ suite('Notebook Integration Tests', function () {
 			this.skip();
 		}
 		const notebookUri = notebook.uri;
+		await waitFor(() => getPendingRefresh(notebookUri) === undefined);
 
 		const entry: XarrayEntry = {
 			variableName: 'tree_da',
@@ -329,7 +718,9 @@ suite('Notebook Integration Tests', function () {
 		const pinnedStore = new PinnedXarrayStore(new MemoryMemento());
 		await pinnedStore.pin(notebookUri, 'tree_da');
 
+		await focusNotebookCell(notebook);
 		const provider = new XarrayPanelProvider(pinnedStore);
+		provider.requestRefresh();
 		const items = await provider.getChildren();
 		assert.strictEqual(items.length, 1, 'Expected one tree item');
 		const item = items[0] as vscode.TreeItem;
@@ -338,10 +729,379 @@ suite('Notebook Integration Tests', function () {
 		assert.ok(typeof item.description === 'string' && item.description.includes('x:'), 'Expected dims description');
 
 		__clearXarrayCacheForTests(notebookUri);
+		provider.dispose();
 	});
 
-	test('Go to definition opens notebook-cell targets', async function () {
+	test('Tree view hides watch menus when watcher APIs are unavailable', async function () {
 		await activateExtension();
+
+		try {
+			notebook = await createNotebook('legacy_da');
+		} catch (error) {
+			this.skip();
+		}
+		const notebookUri = notebook.uri;
+		await waitFor(() => getPendingRefresh(notebookUri) === undefined);
+
+		const entry: XarrayEntry = {
+			variableName: 'legacy_da',
+			type: 'DataArray',
+			name: 'legacy_da',
+			dims: ['x'],
+			sizes: { x: 3 },
+			shape: [3],
+			dtype: 'float64',
+			ndim: 1,
+			watched: false,
+			watchAvailable: false,
+		};
+		__setXarrayCacheForTests(notebookUri, [entry], { hasDetails: true });
+
+		await focusNotebookCell(notebook);
+		const provider = new XarrayPanelProvider(new PinnedXarrayStore(new MemoryMemento()));
+		provider.requestRefresh();
+		const items = await provider.getChildren();
+		assert.strictEqual(items.length, 1, 'Expected one tree item');
+		const item = items[0] as vscode.TreeItem;
+		assert.strictEqual(item.contextValue, 'dataArrayItemNoWatch');
+
+		__clearXarrayCacheForTests(notebookUri);
+		provider.dispose();
+	});
+
+	test('Tree view becomes empty when focus leaves notebooks', async function () {
+		await activateExtension();
+
+		try {
+			notebook = await createNotebook('tree_da');
+		} catch (error) {
+			this.skip();
+		}
+		const notebookUri = notebook.uri;
+		await waitFor(() => getPendingRefresh(notebookUri) === undefined);
+		const entry: XarrayEntry = {
+			variableName: 'tree_da',
+			type: 'DataArray',
+			name: 'tree_da',
+			dims: ['x'],
+			sizes: { x: 3 },
+			shape: [3],
+			dtype: 'float64',
+			ndim: 1,
+			watched: false,
+		};
+		__setXarrayCacheForTests(notebookUri, [entry], { hasDetails: true });
+
+		const provider = new XarrayPanelProvider(new PinnedXarrayStore(new MemoryMemento()));
+		await focusNotebookCell(notebook);
+		provider.requestRefresh();
+		let items = await provider.getChildren();
+		assert.strictEqual(items.length, 1, 'Expected one tree item while the notebook is focused');
+		assert.strictEqual(items[0].label, 'tree_da');
+
+		await focusOutsideNotebook();
+		provider.requestRefresh();
+		items = await provider.getChildren();
+		assert.strictEqual(items.length, 1, 'Expected the empty state outside notebook focus');
+		assert.strictEqual(items[0].label, 'Open a notebook to see xarray objects.');
+
+		__clearXarrayCacheForTests(notebookUri);
+		provider.dispose();
+	});
+
+	test('Tree view follows the active notebook when focus changes', async function () {
+		await activateExtension();
+
+		let otherNotebook: vscode.NotebookDocument | undefined;
+		try {
+			notebook = await createNotebook('tree_a');
+			otherNotebook = await createNotebook('tree_b');
+		} catch (error) {
+			this.skip();
+		}
+		const notebookUri = notebook.uri;
+		const otherNotebookUri = otherNotebook.uri;
+		await waitFor(() => getPendingRefresh(notebookUri) === undefined);
+		await waitFor(() => getPendingRefresh(otherNotebookUri) === undefined);
+
+		__setXarrayCacheForTests(notebookUri, [{
+			variableName: 'tree_a',
+			type: 'DataArray',
+			name: 'tree_a',
+			dims: ['x'],
+			sizes: { x: 3 },
+			shape: [3],
+			dtype: 'float64',
+			ndim: 1,
+			watched: false,
+		}], { hasDetails: true });
+		__setXarrayCacheForTests(otherNotebookUri, [{
+			variableName: 'tree_b',
+			type: 'DataArray',
+			name: 'tree_b',
+			dims: ['x'],
+			sizes: { x: 3 },
+			shape: [3],
+			dtype: 'float64',
+			ndim: 1,
+			watched: false,
+		}], { hasDetails: true });
+
+		const provider = new XarrayPanelProvider(new PinnedXarrayStore(new MemoryMemento()));
+		await focusNotebookCell(notebook);
+		provider.requestRefresh();
+		let items = await provider.getChildren();
+		assert.strictEqual(items.length, 1, 'Expected one tree item from the first notebook');
+		assert.strictEqual(items[0].label, 'tree_a');
+
+		await focusNotebookCell(otherNotebook);
+		provider.requestRefresh();
+		items = await provider.getChildren();
+		assert.strictEqual(items.length, 1, 'Expected one tree item from the newly focused notebook');
+		assert.strictEqual(items[0].label, 'tree_b');
+
+		__clearXarrayCacheForTests(notebookUri);
+		__clearXarrayCacheForTests(otherNotebookUri);
+		provider.dispose();
+	});
+
+	test('Tree view respects passive refresh backoff after a failed refresh', async function () {
+		await activateExtension();
+
+		try {
+			notebook = await createNotebook('tree_da');
+		} catch (error) {
+			this.skip();
+		}
+		const notebookUri = notebook.uri;
+		await waitFor(() => getPendingRefresh(notebookUri) === undefined);
+
+		const refresh = await refreshXarrayCache(notebookUri);
+		assert.ok(refresh.error, 'Expected refresh without an active kernel to fail');
+		assert.strictEqual(
+			shouldAutoRefreshXarrayList(notebookUri),
+			false,
+			'Expected failed refresh to start the passive retry backoff'
+		);
+
+		const provider = new XarrayPanelProvider(new PinnedXarrayStore(new MemoryMemento()));
+		await focusNotebookCell(notebook);
+		provider.requestRefresh();
+		const childrenPromise = provider.getChildren();
+		assert.strictEqual(
+			getPendingRefresh(notebookUri),
+			undefined,
+			'Expected the tree view to avoid starting another refresh during the backoff window'
+		);
+
+		const items = await childrenPromise;
+		assert.strictEqual(items.length, 1, 'Expected a single backoff message item');
+		assert.strictEqual(items[0].label, 'Waiting to retry xarray refresh after a recent failure.');
+
+		__clearXarrayCacheForTests(notebookUri);
+		provider.dispose();
+	});
+
+	test('Tree view rerenders itself after the passive refresh backoff expires', async function () {
+		await activateExtension();
+
+		try {
+			notebook = await createNotebook('tree_da');
+		} catch (error) {
+			this.skip();
+		}
+		const notebookUri = notebook.uri;
+		await waitFor(() => getPendingRefresh(notebookUri) === undefined);
+		const provider = new XarrayPanelProvider(new PinnedXarrayStore(new MemoryMemento()));
+		provider.setTreeView({ visible: true } as unknown as vscode.TreeView<vscode.TreeItem>);
+
+		let refreshEvents = 0;
+		const subscription = provider.onDidChangeTreeData(() => {
+			refreshEvents += 1;
+		});
+
+		try {
+			__setXarrayCacheForTests(notebookUri, [], {
+				stale: true,
+				nextAutoRefreshAt: Date.now() + 3000,
+			});
+
+			await focusNotebookCell(notebook);
+			const items = await provider.getChildren();
+			assert.strictEqual(items.length, 1, 'Expected the backoff placeholder before retry time');
+			assert.strictEqual(items[0].label, 'Waiting to retry xarray refresh after a recent failure.');
+
+			await waitFor(() => refreshEvents > 0, 5000);
+		} finally {
+			subscription.dispose();
+			__clearXarrayCacheForTests(notebookUri);
+			provider.dispose();
+		}
+	});
+
+	test('Objects view refresh command is a silent no-op outside notebooks', async function () {
+		await activateExtension();
+
+		try {
+			notebook = await createNotebook('tree_da');
+		} catch (error) {
+			this.skip();
+		}
+		const notebookUri = notebook.uri;
+		await waitFor(() => getPendingRefresh(notebookUri) === undefined);
+		await focusOutsideNotebook();
+		const kernelApi = kernelClient as unknown as {
+			executeInKernelForOutput: typeof kernelClient.executeInKernelForOutput;
+		};
+		const originalExecuteInKernelForOutput = kernelApi.executeInKernelForOutput;
+		let refreshCallCount = 0;
+		kernelApi.executeInKernelForOutput = async (uri, code, options) => {
+			refreshCallCount += 1;
+			return originalExecuteInKernelForOutput(uri, code, options);
+		};
+		const originalShowInformationMessage = vscode.window.showInformationMessage.bind(vscode.window);
+		const windowApi = vscode.window as unknown as {
+			showInformationMessage: typeof vscode.window.showInformationMessage;
+		};
+		const infoMessages: string[] = [];
+		windowApi.showInformationMessage = (async (message: string, ...items: unknown[]) => {
+			infoMessages.push(message);
+			return (originalShowInformationMessage as (...args: unknown[]) => unknown)(message, ...items);
+		}) as typeof vscode.window.showInformationMessage;
+
+		try {
+			await vscode.commands.executeCommand('erlab.xarray.refresh');
+			await new Promise((resolve) => setTimeout(resolve, 50));
+			assert.strictEqual(refreshCallCount, 0, 'Expected refresh command to skip kernel refresh outside notebooks');
+			assert.strictEqual(infoMessages.length, 0, 'Expected refresh command to be silent outside notebooks');
+		} finally {
+			kernelApi.executeInKernelForOutput = originalExecuteInKernelForOutput;
+			windowApi.showInformationMessage = originalShowInformationMessage;
+		}
+	});
+
+	test('Detail pane clears when focus leaves notebooks', async function () {
+		await activateExtension();
+
+		try {
+			notebook = await createNotebook('tree_da');
+		} catch (error) {
+			this.skip();
+		}
+
+		await focusNotebookCell(notebook);
+		const originalClearDetail = XarrayDetailViewProvider.prototype.clearDetail;
+		let clearDetailCount = 0;
+		XarrayDetailViewProvider.prototype.clearDetail = function clearDetailSpy(this: XarrayDetailViewProvider): void {
+			clearDetailCount += 1;
+			return originalClearDetail.call(this);
+		};
+
+		try {
+			await focusOutsideNotebook();
+			await waitFor(() => clearDetailCount > 0);
+		} finally {
+			XarrayDetailViewProvider.prototype.clearDetail = originalClearDetail;
+		}
+	});
+
+	test('Explicit detail commands trust notebookUri outside notebook focus', async function () {
+		await activateExtension();
+
+		try {
+			notebook = await createNotebook('tree_da');
+		} catch (error) {
+			this.skip();
+		}
+
+		await focusOutsideNotebook();
+		const originalShowDetail = XarrayDetailViewProvider.prototype.showDetail;
+		let capturedNotebookUri: string | undefined;
+		let capturedVariableName: string | undefined;
+		XarrayDetailViewProvider.prototype.showDetail = async function showDetailSpy(
+			this: XarrayDetailViewProvider,
+			notebookUri: vscode.Uri,
+			variableName: string,
+			type?: XarrayObjectType
+		): Promise<void> {
+			capturedNotebookUri = notebookUri.toString();
+			capturedVariableName = variableName;
+			void type;
+			return;
+		};
+		const originalShowInformationMessage = vscode.window.showInformationMessage.bind(vscode.window);
+		const windowApi = vscode.window as unknown as {
+			showInformationMessage: typeof vscode.window.showInformationMessage;
+		};
+		const infoMessages: string[] = [];
+		windowApi.showInformationMessage = (async (message: string, ...items: unknown[]) => {
+			infoMessages.push(message);
+			return (originalShowInformationMessage as (...args: unknown[]) => unknown)(message, ...items);
+		}) as typeof vscode.window.showInformationMessage;
+
+		try {
+			await vscode.commands.executeCommand('erlab.xarray.openDetail', {
+				variableName: 'tree_da',
+				notebookUri: notebook.uri.toString(),
+				type: 'DataArray',
+			});
+			assert.strictEqual(capturedNotebookUri, notebook.uri.toString(), 'Expected explicit notebookUri to drive detail routing');
+			assert.strictEqual(capturedVariableName, 'tree_da', 'Expected detail command to preserve the selected variable');
+			assert.ok(
+				!infoMessages.includes('erlab: open a notebook to view DataArrays.'),
+				'Expected explicit notebookUri to avoid active-notebook validation'
+			);
+		} finally {
+			XarrayDetailViewProvider.prototype.showDetail = originalShowDetail;
+			windowApi.showInformationMessage = originalShowInformationMessage;
+		}
+	});
+
+	test('xarray service clears pending refresh bookkeeping during shutdown', async function () {
+		await activateExtension();
+
+		try {
+			notebook = await createNotebook('tree_da');
+		} catch (error) {
+			this.skip();
+		}
+			const notebookUri = notebook.uri;
+			await waitFor(() => getPendingRefresh(notebookUri) === undefined);
+
+			void refreshXarrayCache(notebookUri);
+			const pending = getPendingRefresh(notebookUri);
+			assert.ok(pending, 'Expected a pending debounced refresh');
+
+			shutdownXarrayService();
+
+			assert.strictEqual(getPendingRefresh(notebookUri), undefined, 'Expected shutdown to drop pending refresh bookkeeping');
+			const result = await Promise.race([
+				pending!,
+				new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 100)),
+			]);
+			assert.notStrictEqual(result, 'timeout', 'Expected the pending refresh promise to settle during shutdown');
+		});
+
+		test('xarray passive auto-refresh retries after the backoff expires', async function () {
+			await activateExtension();
+
+			const notebookUri = vscode.Uri.file(
+				path.join(tempDir ?? os.tmpdir(), `passive-refresh-${Date.now()}.ipynb`)
+			);
+			const refresh = await refreshXarrayCache(notebookUri);
+			assert.ok(refresh.error, 'Expected refresh against a notebook without a kernel to fail');
+			assert.strictEqual(
+				shouldAutoRefreshXarrayList(notebookUri),
+				false,
+				'Expected passive auto-refresh to back off immediately after a failure'
+			);
+
+			await waitFor(() => shouldAutoRefreshXarrayList(notebookUri), 4000);
+			__clearXarrayCacheForTests(notebookUri);
+		});
+
+		test('Go to definition opens notebook-cell targets', async function () {
+			await activateExtension();
 
 		try {
 			notebook = await createNotebook('source_da = 1\nresult = source_da');
@@ -418,6 +1178,26 @@ suite('E2E Tests (Python/Jupyter)', function () {
 	let venvPython = '';
 	let useProvidedVenv = false;
 	let itoolManagerProcess: ChildProcess | undefined;
+	let managerCapabilities:
+		| { hasWatch: boolean; hasWatchedVariables: boolean }
+		| undefined;
+
+	async function getManagerCapabilities(): Promise<{ hasWatch: boolean; hasWatchedVariables: boolean }> {
+		if (managerCapabilities) {
+			return managerCapabilities;
+		}
+		const code = [
+			'import json',
+			'import erlab.interactive.imagetool.manager as manager',
+			'print(json.dumps({',
+			'    "hasWatch": callable(getattr(manager, "watch", None)),',
+			'    "hasWatchedVariables": callable(getattr(manager, "watched_variables", None)),',
+			'}))',
+		].join('\n');
+		const { stdout } = await execFileAsync(venvPython, ['-c', code]);
+		managerCapabilities = JSON.parse(stdout.trim()) as { hasWatch: boolean; hasWatchedVariables: boolean };
+		return managerCapabilities;
+	}
 
 	suiteSetup(async function () {
 		this.timeout(300_000); // 5 minutes for setup
@@ -602,26 +1382,31 @@ suite('E2E Tests (Python/Jupyter)', function () {
 	});
 
 	test('Watch/unwatch keeps DataArrays in xarray query results', async function () {
-			this.timeout(60_000);
+		this.timeout(60_000);
 
-			const queryCode = buildXarrayQueryCode();
-			const code = [
-				'import json',
-				'import numpy as np',
-				'import xarray as xr',
-				'import IPython',
-				'from IPython.terminal.interactiveshell import TerminalInteractiveShell',
-				'import erlab.interactive.imagetool.manager as manager',
-				'ip = TerminalInteractiveShell.instance()',
-				'ip.run_line_magic("load_ext", "erlab.interactive")',
-				'ip.user_ns["a"] = xr.DataArray(np.random.rand(2, 2), dims=["x", "y"], name="a")',
-				'ip.user_ns["b"] = xr.DataArray(np.random.rand(2, 2), dims=["x", "y"], name="b")',
-				'manager.watch("a", shell=ip)',
-				`query_code = ${JSON.stringify(queryCode)}`,
-				'exec(query_code)',
-				'manager.watch("a", shell=ip, stop=True)',
-				'exec(query_code)',
-			].join('\n');
+		const capabilities = await getManagerCapabilities();
+		if (!capabilities.hasWatch || !capabilities.hasWatchedVariables) {
+			this.skip();
+		}
+
+		const queryCode = buildXarrayQueryCode();
+		const code = [
+			'import json',
+			'import numpy as np',
+			'import xarray as xr',
+			'import IPython',
+			'from IPython.terminal.interactiveshell import TerminalInteractiveShell',
+			'import erlab.interactive.imagetool.manager as manager',
+			'ip = TerminalInteractiveShell.instance()',
+			'ip.run_line_magic("load_ext", "erlab.interactive")',
+			'ip.user_ns["a"] = xr.DataArray(np.random.rand(2, 2), dims=["x", "y"], name="a")',
+			'ip.user_ns["b"] = xr.DataArray(np.random.rand(2, 2), dims=["x", "y"], name="b")',
+			'manager.watch("a", shell=ip)',
+			`query_code = ${JSON.stringify(queryCode)}`,
+			'exec(query_code)',
+			'manager.watch("a", shell=ip, stop=True)',
+			'exec(query_code)',
+		].join('\n');
 
 		const { stdout } = await execFileAsync(venvPython, ['-c', code]);
 		const jsonLines = stdout
@@ -648,6 +1433,46 @@ suite('E2E Tests (Python/Jupyter)', function () {
 		assert.ok(secondA, 'Expected a in second query results');
 		assert.ok(secondB, 'Expected b in second query results');
 		assert.strictEqual(secondA?.watched, false, 'Expected a to be unwatched after unwatch');
+	});
+
+	test('xarray query still lists DataArrays when watch APIs are unavailable', async function () {
+		this.timeout(60_000);
+
+		const capabilities = await getManagerCapabilities();
+		if (capabilities.hasWatch && capabilities.hasWatchedVariables) {
+			this.skip();
+		}
+
+		const queryCode = buildXarrayQueryCode();
+		const code = [
+			'import json',
+			'import numpy as np',
+			'import xarray as xr',
+			'import IPython',
+			'from IPython.terminal.interactiveshell import TerminalInteractiveShell',
+			'ip = TerminalInteractiveShell.instance()',
+			'ip.run_line_magic("load_ext", "erlab.interactive")',
+			'ip.user_ns["a"] = xr.DataArray(np.random.rand(2, 2), dims=["x", "y"], name="a")',
+			'ip.user_ns["b"] = xr.DataArray(np.random.rand(2, 2), dims=["x", "y"], name="b")',
+			`query_code = ${JSON.stringify(queryCode)}`,
+			'exec(query_code)',
+		].join('\n');
+
+		const { stdout } = await execFileAsync(venvPython, ['-c', code]);
+		const jsonLine = stdout
+			.split(/\r?\n/)
+			.map((line) => line.trim())
+			.reverse()
+			.find((line) => line.startsWith('['));
+		assert.ok(jsonLine, 'Expected xarray query output');
+
+		const entries = JSON.parse(jsonLine!) as Array<{ variableName: string; watched?: boolean }>;
+		const findEntry = (name: string) => entries.find((entry) => entry.variableName === name);
+
+		assert.ok(findEntry('a'), 'Expected a in query results');
+		assert.ok(findEntry('b'), 'Expected b in query results');
+		assert.strictEqual(findEntry('a')?.watched, false, 'Expected a to fall back to unwatched');
+		assert.strictEqual(findEntry('b')?.watched, false, 'Expected b to fall back to unwatched');
 	});
 });
 

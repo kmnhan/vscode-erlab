@@ -5,7 +5,10 @@ import type { XarrayTreeItem } from '../features/xarray/views/treeView';
 import type { XarrayObjectType } from '../features/xarray/types';
 import { isDataArrayEntry } from '../features/xarray/types';
 
-export type MagicCommandArgs = { variableName?: string };
+export type MagicCommandArgs = {
+	variableName?: string;
+	notebookUri?: string;
+};
 
 export type XarrayPanelCommandArgs = {
 	variableName?: string;

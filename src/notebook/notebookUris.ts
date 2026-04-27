@@ -6,13 +6,75 @@ import * as path from 'path';
 
 const notebookUriByCellDocument = new WeakMap<vscode.TextDocument, vscode.Uri>();
 const notebookUriByCellString = new Map<string, vscode.Uri>();
+const cellUrisByNotebook = new Map<string, Set<string>>();
 const SUPPORTED_NOTEBOOK_TYPES = new Set(['jupyter-notebook', 'marimo-notebook']);
 const SUPPORTED_NOTEBOOK_LANGUAGE_IDS = new Set(['python', 'mo-python']);
+
+function getNotebookCacheKey(notebookUri: vscode.Uri): string {
+	return notebookUri.toString();
+}
+
+function indexNotebookDocument(notebook: vscode.NotebookDocument): void {
+	const notebookKey = getNotebookCacheKey(notebook.uri);
+	const nextCellUris = new Set<string>();
+	for (const cell of notebook.getCells()) {
+		const cellKey = cell.document.uri.toString();
+		nextCellUris.add(cellKey);
+		notebookUriByCellDocument.set(cell.document, notebook.uri);
+		notebookUriByCellString.set(cellKey, notebook.uri);
+	}
+	const previousCellUris = cellUrisByNotebook.get(notebookKey);
+	if (previousCellUris) {
+		for (const previousCellUri of previousCellUris) {
+			if (!nextCellUris.has(previousCellUri)) {
+				notebookUriByCellString.delete(previousCellUri);
+			}
+		}
+	}
+	cellUrisByNotebook.set(notebookKey, nextCellUris);
+}
+
+function unindexNotebookDocument(notebookUri: vscode.Uri): void {
+	const notebookKey = getNotebookCacheKey(notebookUri);
+	const cellUris = cellUrisByNotebook.get(notebookKey);
+	if (cellUris) {
+		for (const cellUri of cellUris) {
+			notebookUriByCellString.delete(cellUri);
+		}
+	}
+	cellUrisByNotebook.delete(notebookKey);
+}
+
+function seedNotebookDocumentIndex(): void {
+	for (const notebook of vscode.workspace.notebookDocuments) {
+		indexNotebookDocument(notebook);
+	}
+}
+
+function resolveNotebookUriFromIndex(cellUri: string): vscode.Uri | undefined {
+	return notebookUriByCellString.get(cellUri);
+}
+
+export function initializeNotebookUriIndex(): vscode.Disposable {
+	seedNotebookDocumentIndex();
+	const openDisposable = vscode.workspace.onDidOpenNotebookDocument((notebook) => {
+		indexNotebookDocument(notebook);
+	});
+	const closeDisposable = vscode.workspace.onDidCloseNotebookDocument((notebook) => {
+		unindexNotebookDocument(notebook.uri);
+	});
+	const changeDisposable = vscode.workspace.onDidChangeNotebookDocument((event) => {
+		if (event.contentChanges.length > 0) {
+			indexNotebookDocument(event.notebook);
+		}
+	});
+	return vscode.Disposable.from(openDisposable, closeDisposable, changeDisposable);
+}
 
 /**
  * Check if a document is a notebook cell document.
  */
-export function isNotebookCellDocument(document: vscode.TextDocument): boolean {
+function isNotebookCellDocument(document: vscode.TextDocument): boolean {
 	return document.uri.scheme === 'vscode-notebook-cell';
 }
 
@@ -66,13 +128,17 @@ export function getNotebookUriForDocument(document: vscode.TextDocument): vscode
 	if (cached) {
 		return cached;
 	}
+	const indexed = resolveNotebookUriFromIndex(document.uri.toString());
+	if (indexed) {
+		notebookUriByCellDocument.set(document, indexed);
+		return indexed;
+	}
 	for (const notebook of vscode.workspace.notebookDocuments) {
-		for (const cell of notebook.getCells()) {
-			if (cell.document.uri.toString() === document.uri.toString()) {
-				notebookUriByCellDocument.set(document, notebook.uri);
-				notebookUriByCellString.set(cell.document.uri.toString(), notebook.uri);
-				return notebook.uri;
-			}
+		indexNotebookDocument(notebook);
+		const resolved = notebookUriByCellString.get(document.uri.toString());
+		if (resolved) {
+			notebookUriByCellDocument.set(document, resolved);
+			return resolved;
 		}
 	}
 	return;
@@ -82,17 +148,17 @@ export function getNotebookUriForDocument(document: vscode.TextDocument): vscode
  * Get the URI of the currently active notebook.
  */
 export function getActiveNotebookUri(): vscode.Uri | undefined {
-	const notebookEditor = vscode.window.activeNotebookEditor;
-	if (notebookEditor?.notebook && isSupportedNotebookType(notebookEditor.notebook.notebookType)) {
-		return notebookEditor.notebook.uri;
-	}
 	const activeEditor = vscode.window.activeTextEditor;
 	if (activeEditor) {
 		const notebook = getNotebookDocumentForCellDocument(activeEditor.document);
-		if (!notebook || !isSupportedNotebookType(notebook.notebookType)) {
-			return;
+		if (notebook && isSupportedNotebookType(notebook.notebookType)) {
+			return notebook.uri;
 		}
-		return notebook.uri;
+		return;
+	}
+	const notebookEditor = vscode.window.activeNotebookEditor;
+	if (notebookEditor?.notebook && isSupportedNotebookType(notebookEditor.notebook.notebookType)) {
+		return notebookEditor.notebook.uri;
 	}
 	return;
 }
@@ -110,25 +176,24 @@ export function resolveNotebookUri(serialized?: string): vscode.Uri | undefined 
 				const direct = vscode.workspace.notebookDocuments.find(
 					(doc) => doc.uri.toString() === parsed.toString()
 				);
-				if (direct) {
-					return direct.uri;
-				}
-				if (parsed.scheme === 'vscode-notebook-cell') {
-					const cached = notebookUriByCellString.get(parsed.toString());
-					if (cached) {
-						return cached;
+					if (direct) {
+						return direct.uri;
 					}
-					for (const notebook of vscode.workspace.notebookDocuments) {
-						const match = notebook
-							.getCells()
-							.some((cell) => cell.document.uri.toString() === parsed.toString());
-						if (match) {
-							return notebook.uri;
+					if (parsed.scheme === 'vscode-notebook-cell') {
+						const cached = resolveNotebookUriFromIndex(parsed.toString());
+						if (cached) {
+							return cached;
+						}
+						for (const notebook of vscode.workspace.notebookDocuments) {
+							indexNotebookDocument(notebook);
+							const indexed = notebookUriByCellString.get(parsed.toString());
+							if (indexed) {
+								return indexed;
+							}
 						}
 					}
-				}
-				return parsed;
-			} catch {
+					return parsed;
+				} catch {
 				// Fall back to file-path handling.
 			}
 		}
