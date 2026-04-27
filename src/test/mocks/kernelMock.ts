@@ -112,33 +112,6 @@ export function createMockKernelWithMultipleOutputs(outputs: string[]): KernelLi
 }
 
 /**
- * Create a mock kernel that respects cancellation.
- *
- * @param response - The output to return if not cancelled.
- * @param delayMs - Delay before yielding output (to allow cancellation).
- */
-export function createMockKernelWithCancellation(response: string, delayMs: number = 100): KernelLike {
-	return {
-		executeCode: (_code: string, token: CancellationTokenLike): AsyncIterable<KernelOutput> => {
-			return {
-				[Symbol.asyncIterator]: async function* () {
-					await new Promise((resolve) => setTimeout(resolve, delayMs));
-					if (token.isCancellationRequested) {
-						return;
-					}
-					yield {
-						items: [{
-							mime: 'text/plain',
-							data: new TextEncoder().encode(response),
-						}],
-					};
-				},
-			};
-		},
-	} as KernelLike;
-}
-
-/**
  * Create a mock Jupyter API that returns the given kernel for any URI.
  *
  * @param kernel - The mock kernel to return.
@@ -158,19 +131,6 @@ export function createMockJupyterApiNoKernel(): JupyterApi {
 	return {
 		kernels: {
 			getKernel: async () => undefined,
-		},
-	};
-}
-
-/**
- * Create a mock Jupyter API that returns different kernels for different URIs.
- *
- * @param kernelMap - A map of URI strings to their respective mock kernels.
- */
-export function createMockJupyterApiWithMapping(kernelMap: Map<string, KernelLike>): JupyterApi {
-	return {
-		kernels: {
-			getKernel: async (uri: UriLike) => kernelMap.get(uri.toString()),
 		},
 	};
 }

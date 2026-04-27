@@ -12,7 +12,7 @@ export type DefinitionTarget = {
 /**
  * Escape special regex characters in a string.
  */
-export function escapeRegExp(value: string): string {
+function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
@@ -44,7 +44,7 @@ export async function findNotebookDefinitionLocation(
 /**
  * Find the first occurrence of a variable in a notebook.
  */
-export function findNotebookVariableOccurrence(
+function findNotebookVariableOccurrence(
 	notebook: vscode.NotebookDocument,
 	escapedName: string
 ): DefinitionTarget | undefined {
@@ -69,7 +69,7 @@ export function findNotebookVariableOccurrence(
 /**
  * Find an assignment location for a variable in a notebook.
  */
-export function findNotebookAssignmentLocation(
+function findNotebookAssignmentLocation(
 	notebook: vscode.NotebookDocument,
 	escapedName: string
 ): DefinitionTarget | undefined {

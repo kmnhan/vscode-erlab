@@ -22,11 +22,6 @@ export function formatXarrayLabel(info: XarrayEntry, fallbackName: string): stri
 }
 
 /**
- * @deprecated Use formatXarrayLabel instead
- */
-export const formatDataArrayLabel = formatXarrayLabel;
-
-/**
  * Format dims with their sizes.
  */
 export function formatDimsWithSizes(dims: string[], sizes: Record<string, number>): string {

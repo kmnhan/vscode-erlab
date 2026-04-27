@@ -17,13 +17,6 @@ export function initializeLogger(context: vscode.ExtensionContext): vscode.LogOu
 }
 
 /**
- * Get the logger instance.
- */
-export function getLogger(): vscode.LogOutputChannel | undefined {
-	return outputChannel;
-}
-
-/**
  * Logger facade with convenience methods.
  * Uses structured args format: logger.info("Found {0} items", count)
  */

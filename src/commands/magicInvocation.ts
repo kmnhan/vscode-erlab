@@ -17,7 +17,7 @@ export function buildMagicInvocation(magicName: string, args: string): string {
 /**
  * Build code to invoke an IPython magic with custom argument lines.
  */
-export function buildMagicInvocationWithArgsCode(magicName: string, argsLines: string[]): string {
+function buildMagicInvocationWithArgsCode(magicName: string, argsLines: string[]): string {
 	return [
 		'import importlib.util',
 		'import IPython',

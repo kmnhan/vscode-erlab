@@ -41,8 +41,3 @@ export class PinnedXarrayStore {
 		await this.state.update(PINNED_XARRAY_KEY, next);
 	}
 }
-
-/**
- * @deprecated Use PinnedXarrayStore instead
- */
-export const PinnedDataArrayStore = PinnedXarrayStore;
