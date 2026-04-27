@@ -7,23 +7,121 @@ import type { KernelOutputItem, KernelProvider } from './types';
 const textDecoder = new TextDecoder();
 const DEFAULT_ENVELOPE_ERROR_MESSAGE = 'Kernel command failed.';
 const MAX_ERROR_SUMMARY_LENGTH = 400;
+const HTML_NAMED_ENTITIES: Record<string, string> = {
+	amp: '&',
+	quot: '"',
+	apos: "'",
+	'#39': "'",
+	nbsp: ' ',
+};
 
-function decodeHtmlEntities(value: string): string {
-	return value
-		.replace(/&lt;/g, '<')
-		.replace(/&gt;/g, '>')
-		.replace(/&amp;/g, '&')
-		.replace(/&quot;/g, '"')
-		.replace(/&#39;/g, "'");
+function isAsciiLetter(value: string): boolean {
+	const code = value.charCodeAt(0);
+	return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+}
+
+function isHtmlTagNameChar(value: string): boolean {
+	const code = value.charCodeAt(0);
+	return isAsciiLetter(value) || (code >= 48 && code <= 57) || value === '-' || value === ':';
+}
+
+function readHtmlTag(value: string, startIndex: number): {
+	closing: boolean;
+	name: string;
+	nextIndex: number;
+} | undefined {
+	const endIndex = value.indexOf('>', startIndex + 1);
+	if (endIndex === -1) {
+		return;
+	}
+
+	const content = value.slice(startIndex + 1, endIndex).trimStart();
+	if (!content) {
+		return;
+	}
+	if (content.startsWith('!') || content.startsWith('?')) {
+		return { closing: false, name: '', nextIndex: endIndex + 1 };
+	}
+
+	const closing = content.startsWith('/');
+	const nameContent = closing ? content.slice(1).trimStart() : content;
+	const firstNameChar = nameContent[0];
+	if (!firstNameChar || !isAsciiLetter(firstNameChar)) {
+		return;
+	}
+
+	let nameEnd = 0;
+	while (nameEnd < nameContent.length && isHtmlTagNameChar(nameContent[nameEnd])) {
+		nameEnd++;
+	}
+
+	return {
+		closing,
+		name: nameContent.slice(0, nameEnd).toLowerCase(),
+		nextIndex: endIndex + 1,
+	};
+}
+
+function decodeHtmlEntityAt(value: string, startIndex: number): {
+	decoded: string;
+	nextIndex: number;
+} | undefined {
+	const endIndex = value.indexOf(';', startIndex + 1);
+	if (endIndex === -1 || endIndex - startIndex > 12) {
+		return;
+	}
+
+	const entity = value.slice(startIndex + 1, endIndex).toLowerCase();
+	const decoded = HTML_NAMED_ENTITIES[entity];
+	if (decoded === undefined) {
+		return;
+	}
+	return {
+		decoded,
+		nextIndex: endIndex + 1,
+	};
 }
 
 function htmlToPlainText(value: string): string {
-	const withLineBreaks = value
-		.replace(/<br\s*\/?>/gi, '\n')
-		.replace(/<\/p>/gi, '\n')
-		.replace(/<\/div>/gi, '\n');
-	const withoutTags = withLineBreaks.replace(/<[^>]+>/g, '');
-	return decodeHtmlEntities(withoutTags).trim();
+	const output: string[] = [];
+	let index = 0;
+
+	while (index < value.length) {
+		const char = value[index];
+		if (char === '<') {
+			const tag = readHtmlTag(value, index);
+			if (tag) {
+				if ((tag.name === 'br' && !tag.closing) || ((tag.name === 'p' || tag.name === 'div') && tag.closing)) {
+					output.push('\n');
+				}
+				index = tag.nextIndex;
+				continue;
+			}
+			output.push('&lt;');
+			index++;
+			continue;
+		}
+
+		if (char === '>') {
+			output.push('&gt;');
+			index++;
+			continue;
+		}
+
+		if (char === '&') {
+			const entity = decodeHtmlEntityAt(value, index);
+			if (entity) {
+				output.push(entity.decoded);
+				index = entity.nextIndex;
+				continue;
+			}
+		}
+
+		output.push(char);
+		index++;
+	}
+
+	return output.join('').trim();
 }
 
 function truncateErrorSummary(value: string): string {

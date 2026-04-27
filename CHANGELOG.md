@@ -15,6 +15,8 @@ All notable changes to the extension will be documented in this file.
 - Keep cached xarray entries visible after temporary refresh errors and wait before
   retrying the kernel query.
 - Prevent ERLab-owned timers and kernel waits from delaying VS Code shutdown.
+- Harden HTML fallback parsing for marimo kernel errors and restrict GitHub Actions
+  token permissions.
 
 ## [v0.5.0] - 2026-02-15
 

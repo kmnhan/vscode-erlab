@@ -279,6 +279,28 @@ suite('Kernel Output Parsing', () => {
 			assert.strictEqual(result, 'RuntimeError: failed');
 		});
 
+		test('keeps angle bracket entities encoded in marimo html errors', () => {
+			const result = classifyKernelErrorOutput({
+				provider: 'marimo',
+				outputChannel: 'marimo-error',
+				item: { mime: 'text/html', data: '<span>&lt;script&gt;bad&lt;/script&gt;</span>' },
+				errorMime,
+				stderrMime,
+			});
+			assert.strictEqual(result, '&lt;script&gt;bad&lt;/script&gt;');
+		});
+
+		test('does not double-decode marimo html error entities', () => {
+			const result = classifyKernelErrorOutput({
+				provider: 'marimo',
+				outputChannel: 'marimo-error',
+				item: { mime: 'text/html', data: '<span>&amp;lt;script&amp;gt;bad&amp;lt;/script&amp;gt;</span>' },
+				errorMime,
+				stderrMime,
+			});
+			assert.strictEqual(result, '&lt;script&gt;bad&lt;/script&gt;');
+		});
+
 		test('ignores marimo html traceback fallback without explicit error channel', () => {
 			const result = classifyKernelErrorOutput({
 				provider: 'marimo',
