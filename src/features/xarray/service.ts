@@ -97,6 +97,7 @@ function parseXarrayResponse(output: string): { entries: XarrayEntry[]; error?: 
 		dtype?: string;
 		ndim?: number;
 		watched?: boolean;
+		watchAvailable?: boolean;
 		error?: string;
 	}> | { error?: string };
 
@@ -121,10 +122,11 @@ function parseXarrayResponse(output: string): { entries: XarrayEntry[]; error?: 
 			if (entry.type !== 'DataArray') {
 				return base;
 			}
-			const dataArray: XarrayEntry = {
-				...base,
-				watched: entry.watched ?? false,
-			};
+				const dataArray: XarrayEntry = {
+					...base,
+					watched: entry.watched ?? false,
+					watchAvailable: entry.watchAvailable ?? true,
+				};
 			const hasDetails = Array.isArray(entry.dims)
 				&& entry.sizes
 				&& typeof entry.sizes === 'object'

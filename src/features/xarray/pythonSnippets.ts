@@ -2,10 +2,7 @@
  * Python code snippet builders for xarray object queries.
  */
 
-import type { XarrayObjectType } from './types';
-
 const ERLAB_TMP_PREFIX = '__erlab_tmp__';
-const ERLAB_WATCH_STATUS_REQUIREMENT_MESSAGE = 'watched variable status requires erlab 3.20.0 or later. Please upgrade erlab.';
 
 /**
  * Indent a multiline string by a specified number of spaces.
@@ -19,19 +16,20 @@ function indent(code: string, spaces: number): string {
  * Common Python code for extracting DataArray info (summary, no dims/shape).
  * This helper is called within the generated code for each DataArray variable.
  */
-const EXTRACT_DATAARRAY_SUMMARY_HELPER = `def ${ERLAB_TMP_PREFIX}extract_dataarray_summary(varname, da, watched_vars):
+const EXTRACT_DATAARRAY_SUMMARY_HELPER = `def ${ERLAB_TMP_PREFIX}extract_dataarray_summary(varname, da, watched_vars, watch_available):
     return {
         "variableName": varname,
         "type": "DataArray",
         "name": da.name,
         "watched": varname in watched_vars,
+        "watchAvailable": watch_available,
     }`;
 
 /**
  * Common Python code for extracting full DataArray info.
  * This helper is called within the generated code for each DataArray variable.
  */
-const EXTRACT_DATAARRAY_INFO_HELPER = `def ${ERLAB_TMP_PREFIX}extract_dataarray_info(varname, da, watched_vars):
+const EXTRACT_DATAARRAY_INFO_HELPER = `def ${ERLAB_TMP_PREFIX}extract_dataarray_info(varname, da, watched_vars, watch_available):
     return {
         "variableName": varname,
         "type": "DataArray",
@@ -42,6 +40,7 @@ const EXTRACT_DATAARRAY_INFO_HELPER = `def ${ERLAB_TMP_PREFIX}extract_dataarray_
         "dtype": str(da.dtype),
         "ndim": int(da.ndim),
         "watched": varname in watched_vars,
+        "watchAvailable": watch_available,
     }`;
 
 /**
@@ -68,15 +67,17 @@ const EXTRACT_DATATREE_INFO_HELPER = `def ${ERLAB_TMP_PREFIX}extract_datatree_in
  * Common Python code for getting the watched variables set.
  */
 const GET_WATCHED_VARS_CODE = `${ERLAB_TMP_PREFIX}watched_vars = set()
+${ERLAB_TMP_PREFIX}watch_available = False
 try:
     import erlab.interactive.imagetool.manager as ${ERLAB_TMP_PREFIX}manager
-    if not callable(getattr(${ERLAB_TMP_PREFIX}manager, "watched_variables", None)):
-        raise RuntimeError(${JSON.stringify(ERLAB_WATCH_STATUS_REQUIREMENT_MESSAGE)})
-    ${ERLAB_TMP_PREFIX}watched_vars = set(${ERLAB_TMP_PREFIX}manager.watched_variables())
-except RuntimeError:
-    raise
+    ${ERLAB_TMP_PREFIX}watch = getattr(${ERLAB_TMP_PREFIX}manager, "watch", None)
+    ${ERLAB_TMP_PREFIX}watched_variables = getattr(${ERLAB_TMP_PREFIX}manager, "watched_variables", None)
+    if callable(${ERLAB_TMP_PREFIX}watch) and callable(${ERLAB_TMP_PREFIX}watched_variables):
+        ${ERLAB_TMP_PREFIX}watch_available = True
+        ${ERLAB_TMP_PREFIX}watched_vars = set(${ERLAB_TMP_PREFIX}watched_variables())
 except Exception:
-    ${ERLAB_TMP_PREFIX}watched_vars = set()`;
+    ${ERLAB_TMP_PREFIX}watched_vars = set()
+    ${ERLAB_TMP_PREFIX}watch_available = False`;
 
 /**
  * Build Python code to query xarray object info.
@@ -108,7 +109,7 @@ export function buildXarrayQueryCode(variableName?: string, options?: XarrayQuer
 			`    ${ERLAB_TMP_PREFIX}value = ${variableName}`,
 			`    ${ERLAB_TMP_PREFIX}varname = ${JSON.stringify(variableName)}`,
 			`    if isinstance(${ERLAB_TMP_PREFIX}value, xr.DataArray):`,
-			`        print(json.dumps([${dataArrayExtractor}(${ERLAB_TMP_PREFIX}varname, ${ERLAB_TMP_PREFIX}value, ${ERLAB_TMP_PREFIX}watched_vars)]))`,
+				`        print(json.dumps([${dataArrayExtractor}(${ERLAB_TMP_PREFIX}varname, ${ERLAB_TMP_PREFIX}value, ${ERLAB_TMP_PREFIX}watched_vars, ${ERLAB_TMP_PREFIX}watch_available)]))`,
 			`    elif isinstance(${ERLAB_TMP_PREFIX}value, xr.Dataset):`,
 			`        print(json.dumps([${ERLAB_TMP_PREFIX}extract_dataset_info(${ERLAB_TMP_PREFIX}varname, ${ERLAB_TMP_PREFIX}value)]))`,
 			`    elif hasattr(xr, 'DataTree') and isinstance(${ERLAB_TMP_PREFIX}value, xr.DataTree):`,
@@ -145,7 +146,7 @@ export function buildXarrayQueryCode(variableName?: string, options?: XarrayQuer
 			'            continue',
 			`        ${ERLAB_TMP_PREFIX}obj = ${ERLAB_TMP_PREFIX}user_ns.get(${ERLAB_TMP_PREFIX}varname, None)`,
 			`        if isinstance(${ERLAB_TMP_PREFIX}obj, xr.DataArray):`,
-			`            ${ERLAB_TMP_PREFIX}result.append(${dataArrayExtractor}(${ERLAB_TMP_PREFIX}varname, ${ERLAB_TMP_PREFIX}obj, ${ERLAB_TMP_PREFIX}watched_vars))`,
+				`            ${ERLAB_TMP_PREFIX}result.append(${dataArrayExtractor}(${ERLAB_TMP_PREFIX}varname, ${ERLAB_TMP_PREFIX}obj, ${ERLAB_TMP_PREFIX}watched_vars, ${ERLAB_TMP_PREFIX}watch_available))`,
 			`        elif isinstance(${ERLAB_TMP_PREFIX}obj, xr.Dataset):`,
 			`            ${ERLAB_TMP_PREFIX}result.append(${ERLAB_TMP_PREFIX}extract_dataset_info(${ERLAB_TMP_PREFIX}varname, ${ERLAB_TMP_PREFIX}obj))`,
 			`        elif ${ERLAB_TMP_PREFIX}has_datatree and isinstance(${ERLAB_TMP_PREFIX}obj, xr.DataTree):`,
@@ -156,11 +157,6 @@ export function buildXarrayQueryCode(variableName?: string, options?: XarrayQuer
 		].join('\n');
 	}
 }
-
-/**
- * @deprecated Use buildXarrayQueryCode instead
- */
-export const buildDataArrayQueryCode = buildXarrayQueryCode;
 
 /**
  * Options for configuring xarray display behavior.
@@ -200,8 +196,3 @@ export function buildXarrayHtmlCode(variableName: string, options?: XarrayDispla
 		`    print(json.dumps({"error": str(${ERLAB_TMP_PREFIX}exc)}))`,
 	].join('\n');
 }
-
-/**
- * @deprecated Use buildXarrayHtmlCode instead
- */
-export const buildDataArrayHtmlCode = buildXarrayHtmlCode;

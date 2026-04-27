@@ -25,6 +25,7 @@ export type XarrayEntry = {
 	dtype?: string;
 	ndim?: number;
 	watched?: boolean;
+	watchAvailable?: boolean;
 };
 
 /**
@@ -47,4 +48,5 @@ export function isDataArrayEntry(entry: XarrayEntry): entry is XarrayEntry & {
 }
 
 export const DATA_ARRAY_CONTEXT = 'erlab.isDataArray';
+export const DATA_ARRAY_WATCH_AVAILABLE_CONTEXT = 'erlab.isDataArrayWatchAvailable';
 export const DATA_ARRAY_WATCHED_CONTEXT = 'erlab.isDataArrayWatched';

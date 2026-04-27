@@ -90,13 +90,17 @@ suite('Python Snippets', () => {
 				assert.ok(listCode.includes('import IPython as __erlab_tmp__IPython'));
 			});
 
-		test('uses erlab watcher API for watched variables', () => {
-			const code = buildXarrayQueryCode();
-			assert.ok(code.includes('erlab.interactive.imagetool.manager'));
-			assert.ok(code.includes('watched_variables()'));
-			assert.ok(code.includes('if not callable(getattr(__erlab_tmp__manager, "watched_variables", None)):'));
-			assert.ok(code.includes('watched variable status requires erlab 3.20.0 or later. Please upgrade erlab.'));
-			assert.ok(!code.includes('__erlab_watched_vars__'));
+			test('uses erlab watcher API for watched variables', () => {
+				const code = buildXarrayQueryCode();
+				assert.ok(code.includes('erlab.interactive.imagetool.manager'));
+				assert.ok(code.includes('__erlab_tmp__watch = getattr(__erlab_tmp__manager, "watch", None)'));
+				assert.ok(code.includes('watched_variables()'));
+				assert.ok(code.includes('__erlab_tmp__watched_variables = getattr(__erlab_tmp__manager, "watched_variables", None)'));
+				assert.ok(code.includes('if callable(__erlab_tmp__watch) and callable(__erlab_tmp__watched_variables):'));
+				assert.ok(code.includes('"watchAvailable": watch_available'));
+				assert.ok(!code.includes('watched variable status requires erlab 3.20.0 or later. Please upgrade erlab.'));
+				assert.ok(!code.includes('raise RuntimeError'));
+				assert.ok(!code.includes('__erlab_watched_vars__'));
 		});
 	});
 });
