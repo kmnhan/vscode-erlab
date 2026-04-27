@@ -22,6 +22,7 @@ This file provides guidance for AI coding agents working on this repository.
 ```text
 src/
 ├── extension.ts          # Extension entry point (activate/deactivate)
+├── timers.ts             # Non-blocking timer helpers for shutdown-safe async work
 ├── commands/             # VS Code command implementations
 │   ├── index.ts          # Command registration
 │   ├── args.ts           # Command argument parsing
@@ -36,6 +37,7 @@ src/
 │   └── hover/            # Hover provider for notebooks
 ├── kernel/               # Jupyter kernel communication
 │   ├── kernelClient.ts   # Kernel execution and result parsing
+│   ├── executionTracker.ts # Tracks in-flight executions for extension shutdown
 │   ├── outputParsing.ts  # Output parsing helpers (unit-test safe)
 │   └── types.ts          # Kernel-related types
 ├── notebook/             # Notebook utilities
@@ -90,6 +92,8 @@ Located in `src/test/unit/`. These test pure functions without VS Code dependenc
 - `magicInvocation.test.ts` - Magic command generation
 - `jupyterApiContract.test.ts` - Jupyter API type structure verification
 - `kernelMock.test.ts` - Mock infrastructure validation
+- `executionTracker.test.ts` - Shutdown cancellation registry behavior
+- `timers.test.ts` - Non-blocking timer helper behavior
 
 Run with: `npm run test:unit`
 

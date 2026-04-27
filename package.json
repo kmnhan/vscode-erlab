@@ -162,6 +162,12 @@
           "default": true,
           "description": "Uses the ImageTool Manager to open ImageTool windows if it is available."
         },
+        "erlab.kernel.commandTimeoutMs": {
+          "type": "number",
+          "default": 10000,
+          "minimum": 0,
+          "description": "Timeout in milliseconds for ERLab command executions. Set to 0 to disable the timeout."
+        },
         "erlab.xarray.displayExpandAttrs": {
           "type": "boolean",
           "default": true,

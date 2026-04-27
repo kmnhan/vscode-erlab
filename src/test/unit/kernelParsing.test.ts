@@ -4,12 +4,14 @@
 import * as assert from 'assert';
 import {
 	buildKernelCommandEnvelope,
+	classifyKernelTimeoutHandling,
 	classifyKernelErrorOutput,
 	extractKernelCommandEnvelopeResult,
 	extractLastJsonLine,
 	normalizeKernelError,
 	decodeKernelOutputItem,
 	selectKernelExecutionError,
+	shouldInterruptKernelTimeout,
 	summarizeKernelCommandEnvelopeError,
 } from '../../kernel/outputParsing';
 
@@ -169,6 +171,58 @@ suite('Kernel Output Parsing', () => {
 			});
 			assert.strictEqual(selected.message, 'RuntimeError: failed; ValueError: bad');
 			assert.strictEqual(selected.source, 'transport');
+		});
+	});
+
+	suite('classifyKernelTimeoutHandling', () => {
+		test('rejects timeouts for executions that never started', () => {
+			const result = classifyKernelTimeoutHandling({
+				didExecutionStart: false,
+				startedTimeoutPolicy: 'detach',
+			});
+			assert.strictEqual(result, 'reject');
+		});
+
+		test('rejects started executions when policy is reject', () => {
+			const result = classifyKernelTimeoutHandling({
+				didExecutionStart: true,
+				startedTimeoutPolicy: 'reject',
+			});
+			assert.strictEqual(result, 'reject');
+		});
+
+		test('detaches started executions when policy is detach', () => {
+			const result = classifyKernelTimeoutHandling({
+				didExecutionStart: true,
+				startedTimeoutPolicy: 'detach',
+			});
+			assert.strictEqual(result, 'detach');
+		});
+	});
+
+	suite('shouldInterruptKernelTimeout', () => {
+		test('does not interrupt queued executions that never started', () => {
+			const result = shouldInterruptKernelTimeout({
+				didExecutionStart: false,
+				interruptOnTimeout: true,
+			});
+			assert.strictEqual(result, false);
+		});
+
+		test('interrupts started executions only when configured', () => {
+			const result = shouldInterruptKernelTimeout({
+				didExecutionStart: true,
+				interruptOnTimeout: true,
+			});
+			assert.strictEqual(result, true);
+		});
+
+		test('does not interrupt started executions when timeout policy is non-interrupting', () => {
+			const result = shouldInterruptKernelTimeout({
+				didExecutionStart: true,
+				interruptOnTimeout: false,
+			});
+			assert.strictEqual(result, false);
 		});
 	});
 

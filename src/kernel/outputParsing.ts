@@ -157,6 +157,25 @@ export function selectKernelExecutionError(params: {
 	};
 }
 
+export type StartedKernelTimeoutPolicy = 'reject' | 'detach';
+
+export function classifyKernelTimeoutHandling(params: {
+	didExecutionStart: boolean;
+	startedTimeoutPolicy?: StartedKernelTimeoutPolicy;
+}): StartedKernelTimeoutPolicy {
+	if (!params.didExecutionStart) {
+		return 'reject';
+	}
+	return params.startedTimeoutPolicy === 'detach' ? 'detach' : 'reject';
+}
+
+export function shouldInterruptKernelTimeout(params: {
+	didExecutionStart: boolean;
+	interruptOnTimeout?: boolean;
+}): boolean {
+	return params.didExecutionStart && Boolean(params.interruptOnTimeout);
+}
+
 /**
  * Decode kernel output item data to a string.
  */

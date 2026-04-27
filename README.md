@@ -73,6 +73,11 @@ appear when the kernel has the `erlab` package installed:
   already running. Otherwise, open in a new ImageTool window bound to the current
   kernel. If set to false, always open in the current kernel regardless of whether the
   manager is running.
+- `erlab.kernel.commandTimeoutMs` (default: 10000) - Timeout in milliseconds for ERLab
+  command executions. Helper and output queries fail when this timeout is reached. GUI
+  tool launches only wait this long locally after the command starts running; once
+  started, the tool may continue opening in the kernel after the extension stops
+  waiting. Set to `0` to disable the timeout.
 
 ## Requirements
 
@@ -88,3 +93,5 @@ appear when the kernel has the `erlab` package installed:
 
 - Hover and context actions run code in the active kernel. You may be prompted to allow
   code execution on first use.
+- GUI tool commands can block if the kernel has not enabled Qt event-loop integration.
+  In IPython/Jupyter kernels, try running `%gui qt` to enable it.
