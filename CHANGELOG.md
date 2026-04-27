@@ -2,7 +2,7 @@
 
 All notable changes to the extension will be documented in this file.
 
-## [Unreleased]
+## [v0.6.0] - 2026-04-27
 
 - Add `erlab.kernel.commandTimeoutMs` to configure ERLab kernel command timeouts, with
   safer timeout handling that avoids interrupting unrelated queued user code.
